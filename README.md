@@ -2,51 +2,51 @@
 
 # AmneziaWG FreeBSD Setup & Split Tunneling
 
-This repository provides an automated solution for installing and configuring **AmneziaWG** on **FreeBSD 14/15**. It is designed to build the kernel module from source and set up efficient, domain-based split tunneling.
+This repository provides an automated solution for installing and configuring **AmneziaWG** on **FreeBSD 14/15**. It builds the kernel module from source and enables high-performance VPN connectivity with optional domain-based routing.
 
 ---
 
 ## Features
 
-* **Native Kernel Performance**: Clones and compiles the AmneziaWG kernel module (`if_wg.ko`) tailored for your specific FreeBSD version.
-* **Intelligent Patching**: Automatically modifies `awg-quick` to work natively with FreeBSD's `ifconfig`, removing the need for `amneziawg-go`.
-* **Domain-Based Split Tunneling**: Automatically routes traffic for specific domains through the VPN tunnel while keeping all other traffic on your local ISP.
-* **Service Integration**: Registers a standard FreeBSD service (`/usr/local/etc/rc.d/amneziawg`) for persistent startup and easy management.
-* **Clean Uninstallation**: Includes a dedicated uninstall flag (`-u`) to safely remove all binaries, kernel modules, and configuration changes.
+* **Native Kernel Performance**: Clones and compiles the AmneziaWG kernel module (`if_wg.ko`) for your specific FreeBSD version.
+* **Intelligent Patching**: Modifies `awg-quick` to work natively with FreeBSD's `ifconfig`, removing the need for `amneziawg-go`.
+* **Optional Split Tunneling**: Route traffic for specific domains through the VPN while keeping everything else on your local ISP.
+* **Full Auto-Start**: Registers a standard FreeBSD service (`/usr/local/etc/rc.d/amneziawg`) that starts automatically upon reboot.
+* **Clean Uninstallation**: Includes a dedicated uninstall flag (`-u`) to safely remove all binaries and modules.
 
 ---
 
 ## Prerequisites
 
-1. **OS**: FreeBSD 14.0-RELEASE or newer (fully supports FreeBSD 15-CURRENT).
-2. **Privileges**: The script must be executed as **root** (or via `sudo`).
-3. **Kernel Sources**: Required to compile the kernel module. If they are missing, install them with:
+1. **OS**: FreeBSD 14.0-RELEASE or newer (supports FreeBSD 15-CURRENT).
+2. **Privileges**: Must be executed as **root** (or via `sudo`).
+3. **Kernel Sources**: Required to compile the module. Install via:
    `freebsd-update fetch install`
-4. **Configuration**: You need a valid `.conf` file from an AmneziaWG provider (containing `Jc`, `Jmin`, `Jmax` parameters).
+4. **Configuration**: A valid `.conf` file from an AmneziaWG provider is required.
 
 ---
 
 ## Installation & Usage
 
-### 1. Download and Prepare
-`chmod +x awg-setup.sh`
+### 1. Basic Installation
+To install AmneziaWG with default settings, simply provide your configuration file:
+`sudo ./awg-setup.sh -c /path/to/vpn.conf`
 
-### 2. Run the Setup
-Run the script by providing the path to your configuration file and the list of domains you wish to tunnel:
+### 2. Advanced Usage (Split Tunneling)
+If you want the VPN to handle only specific domains, use the `-d` option:
 `sudo ./awg-setup.sh -c /path/to/vpn.conf -d "rutracker.org,nnmclub.to"`
 
-### Options
+### All Options
 * `-c FILE`: **(Required)** Path to your AmneziaWG `.conf` file.
-* `-d DOMAINS`: Comma-separated list of domains to tunnel. (Default: `rutracker.org`).
+* `-d DOMAINS`: Optional comma-separated list of domains to tunnel. (Default: `rutracker.org`).
 * `-i IFACE`: Name of the tunnel interface. (Default: `awg0`).
 * `-u`: Uninstall and clean the system.
-* `-h`: Display help and usage examples.
 
 ---
 
 ## Service Management
 
-The script installs a native RC service. Use the following commands to manage your VPN:
+The tunnel stays active after reboots thanks to the integrated RC service.
 
 | Action | Command |
 | :--- | :--- |
@@ -54,18 +54,17 @@ The script installs a native RC service. Use the following commands to manage yo
 | **Stop VPN** | service amneziawg stop |
 | **Status** | service amneziawg status |
 | **Interface Info** | awg show awg0 |
-| **Routing Table** | netstat -rn | grep awg0 |
 
 ---
 
 ## Troubleshooting & Logs
 
-* **Installation Logs**: Detailed logs are stored at `/var/log/awg-setup.log`.
-* **Routing Activity**: Split tunneling events and resolution errors are logged to the system log. View them with:
+* **Installation Logs**: Found at `/var/log/awg-setup.log`.
+* **Routing Activity**: View split tunneling events:
   `grep awg-split /var/log/messages`
-* **Kernel Mismatch**: If the kernel module fails to load, ensure your `/usr/src` matches your running kernel version (`uname -r`).
+* **Kernel Mismatch**: Ensure `/usr/src` matches your kernel version (`uname -r`).
 
 ---
 
 ## Credits
-This script utilizes high-performance kernel module forks and tools maintained by [vgrebenschikov](https://github.com/vgrebenschikov) and the [amnezia-vpn](https://github.com/amnezia-vpn) project.
+Utilizes kernel module forks and tools by [vgrebenschikov](https://github.com/vgrebenschikov) and [amnezia-vpn](https://github.com/amnezia-vpn).

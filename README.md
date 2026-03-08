@@ -1,4 +1,4 @@
-[🇷🇺 На русском языке](README.ru.md)
+**[🇷🇺 На русском языке](README.ru.md)**
 
 # AmneziaWG FreeBSD Setup & Split Tunneling
 

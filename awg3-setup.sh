@@ -240,8 +240,7 @@ build_and_install_awg3() {
     sed -i '' 's/cmd wg setconf/cmd awg setconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
     sed -i '' 's/cmd wg showconf/cmd awg showconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
     sed -i '' 's/wg show/awg show/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
-    sed -i '' 's/monitor_daemon() {/monitor_daemon() { return 0; } _unused_monitor() {/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
-    sed -i '' 's/^[[:space:]]*monitor_daemon$/: # monitor_daemon/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+    sed -i '' 's/.*Backgrounding route monitor.*/return 0/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
 
     gmake -C "${TOOLS_BUILD_DIR}/src" clean
     gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local || die "Ошибка компиляции amneziawg-tools"
@@ -250,8 +249,7 @@ build_and_install_awg3() {
 
     # Гарантируем отсутствие случайного префикса aawg и отключение route monitor в awg-quick
     sed -i '' 's/aawg/awg/g' /usr/local/bin/awg-quick 2>/dev/null || true
-    sed -i '' 's/monitor_daemon() {/monitor_daemon() { return 0; } _unused_monitor() {/' /usr/local/bin/awg-quick 2>/dev/null || true
-    sed -i '' 's/^[[:space:]]*monitor_daemon$/: # monitor_daemon/' /usr/local/bin/awg-quick 2>/dev/null || true
+    sed -i '' 's/.*Backgrounding route monitor.*/return 0/' /usr/local/bin/awg-quick 2>/dev/null || true
 
     # Создаём симлинк /usr/local/bin/wg -> /usr/local/bin/awg
     ln -sf /usr/local/bin/awg /usr/local/bin/wg

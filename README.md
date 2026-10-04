@@ -30,7 +30,32 @@ This repository provides two specialized scripts:
 
 ## Installation & Usage
 
-### 1. AmneziaWG (Standard / 2.x)
+### Interactive TUI Wizard (Recommended)
+
+Simply run the script with root privileges without arguments to launch the native FreeBSD dialog wizard:
+
+```bash
+# For AmneziaWG 3.1:
+sudo ./awg3-setup.sh
+
+# For standard AmneziaWG 2.x:
+sudo ./awg-setup.sh
+```
+
+The wizard will guide you through:
+1. **Language Selection**: English or Russian.
+2. **Config Discovery**: Automatic scan of current directory, `$HOME`, and `/etc` for `.conf` files (or manual path entry).
+3. **Routing Mode**: Full tunnel vs Split tunneling.
+4. **Interactive Domain Manager**: Add or remove target domains/subnets before installation.
+5. **Real-time Verification**: Post-install DNS routing and external IP verification.
+
+---
+
+### Non-Interactive / CLI Mode
+
+You can also pass arguments directly for headless or automated deployments:
+
+#### 1. AmneziaWG (Standard / 2.x)
 
 ```bash
 # Full tunnel (route all internet traffic through VPN):
@@ -40,7 +65,7 @@ sudo ./awg-setup.sh -c /path/to/vpn.conf
 sudo ./awg-setup.sh -c /path/to/vpn.conf -d "rutracker.org,nnmclub.to,198.51.100.0/24"
 ```
 
-### 2. AmneziaWG 3.1 (AWG3)
+#### 2. AmneziaWG 3.1 (AWG3)
 
 For configurations containing `HeaderProtectionKey`, `ContentPaddingAddition`, and `RandomTrailers`:
 

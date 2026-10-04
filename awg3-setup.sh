@@ -98,6 +98,7 @@ do_uninstall() {
     rm -rf "${AWG_DIR}"
     rm -f /boot/modules/if_wg.ko /boot/modules/if_amn.ko
     rm -f /usr/local/bin/awg /usr/local/bin/awg-quick
+    pkill -f "route.*monitor" 2>/dev/null || true
 
     sed -i '' '/amneziawg3/d'  /etc/rc.conf     2>/dev/null || true
     sed -i '' '/if_wg_load/d'  /boot/loader.conf 2>/dev/null || true
@@ -175,6 +176,7 @@ cleanup_old_awg() {
         awg-quick down "${CONF_PATH}" 2>/dev/null || true
         awg-quick down /usr/local/etc/amnezia/awg0.conf 2>/dev/null || true
         ifconfig "${IFACE}" destroy 2>/dev/null || true
+        pkill -f "route.*monitor" 2>/dev/null || true
     fi
 
     # Отключение автозапуска старого сервиса
@@ -231,20 +233,25 @@ build_and_install_awg3() {
     # Патчим awg-quick для FreeBSD:
     # 1. Заставляем awg-quick вызывать скомпилированный awg 3.1, а не системный /usr/bin/wg
     # 2. Заставляем создавать нативный ядерный интерфейс if_wg.ko, а не amneziawg-go
+    # 3. Отключаем background route monitor, блокирующий завершение скриптов и удерживающий дескрипторы
     info "Патчим awg-quick для работы с нативным модулем ядра if_wg.ko и утилитой awg 3.1..."
     sed -i '' 's/cmd="amneziawg-go "\$INTERFACE"";/:;/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
     sed -i '' 's/\${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}/ifconfig wg create name/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
     sed -i '' 's/cmd wg setconf/cmd awg setconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
     sed -i '' 's/cmd wg showconf/cmd awg showconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
     sed -i '' 's/wg show/awg show/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+    sed -i '' 's/monitor_daemon() {/monitor_daemon() { return 0; } _unused_monitor() {/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+    sed -i '' 's/^[[:space:]]*monitor_daemon$/: # monitor_daemon/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
 
     gmake -C "${TOOLS_BUILD_DIR}/src" clean
     gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local || die "Ошибка компиляции amneziawg-tools"
     gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local install || die "Ошибка установки amneziawg-tools"
     rm -rf "${TOOLS_BUILD_DIR}"
 
-    # Гарантируем отсутствие случайного префикса aawg в awg-quick
+    # Гарантируем отсутствие случайного префикса aawg и отключение route monitor в awg-quick
     sed -i '' 's/aawg/awg/g' /usr/local/bin/awg-quick 2>/dev/null || true
+    sed -i '' 's/monitor_daemon() {/monitor_daemon() { return 0; } _unused_monitor() {/' /usr/local/bin/awg-quick 2>/dev/null || true
+    sed -i '' 's/^[[:space:]]*monitor_daemon$/: # monitor_daemon/' /usr/local/bin/awg-quick 2>/dev/null || true
 
     # Создаём симлинк /usr/local/bin/wg -> /usr/local/bin/awg
     ln -sf /usr/local/bin/awg /usr/local/bin/wg
@@ -527,9 +534,11 @@ verify() {
 
     # Проверка handshake с сервером
     sleep 1
-    HANDSHAKE=$(awg show "${IFACE}" latest-handshakes 2>/dev/null | awk '{print $2}')
-    if [ -n "${HANDSHAKE}" ] && [ "${HANDSHAKE}" -gt 0 ] 2>/dev/null; then
-        ok "Handshake с сервером AmneziaWG 3.1 успешно выполнен (${HANDSHAKE} сек назад)"
+    HANDSHAKE_TS=$(awg show "${IFACE}" latest-handshakes 2>/dev/null | awk '{print $2}')
+    if [ -n "${HANDSHAKE_TS}" ] && [ "${HANDSHAKE_TS}" -gt 0 ] 2>/dev/null; then
+        NOW=$(date +%s)
+        AGO=$((NOW - HANDSHAKE_TS))
+        ok "Handshake с сервером AmneziaWG 3.1 успешно выполнен (${AGO} сек назад)"
     fi
 }
 

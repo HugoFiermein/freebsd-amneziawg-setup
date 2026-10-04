@@ -248,7 +248,7 @@ run_wizard() {
             if [ -z "${DOMAIN_LIST}" ]; then
                 DOM_DISPLAY="$(t "(No domains added yet)" "(Список пуст)")"
             else
-                DOM_DISPLAY=$(echo "${DOMAIN_LIST}" | tr ',' '\n' | sed 's/^/  • /')
+                DOM_DISPLAY=$(echo "${DOMAIN_LIST}" | tr ',' '\n' | sed 's/^/  * /')
             fi
 
             MENU_MSG="$(t "Current split tunneling targets:" "Текущие цели раздельного туннелирования:")\n\n${DOM_DISPLAY}\n"
@@ -257,10 +257,10 @@ run_wizard() {
                 --title " $(t "Split Tunneling Manager" "Управление раздельным туннелированием") " \
                 --menu "${MENU_MSG}" \
                 18 72 4 \
-                "ADD"   "$(t "+ Add domain or IP/CIDR" "+ Добавить домен или IP/CIDR")" \
-                "DEL"   "$(t "- Remove last added item" "- Удалить последний добавленный элемент")" \
-                "CLEAR" "$(t "x Clear all items" "x Очистить весь список")" \
-                "DONE"  "$(t "-> Proceed with this list" "-> Завершить и продолжить установку")" \
+                "ADD"   "$(t "[+] Add domain or IP/CIDR" "[+] Добавить домен или IP/CIDR")" \
+                "DEL"   "$(t "[-] Remove last added item" "[-] Удалить последний добавленный элемент")" \
+                "CLEAR" "$(t "[X] Clear all items" "[X] Очистить весь список")" \
+                "DONE"  "$(t "[OK] Proceed with this list" "[OK] Завершить и продолжить установку")" \
                 2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
 
             ACT=$(cat "${TMP_DIALOG}")
@@ -317,9 +317,9 @@ run_wizard() {
     fi
 
     SUM_TEXT="$(t "Ready to install AmneziaWG 3.1 with settings:" "Готово к установке AmneziaWG 3.1 со следующими параметрами:")\n\n"
-    SUM_TEXT="${SUM_TEXT}  • $(t "Config file:" "Конфигурация:")   ${CONF_FILE}\n"
-    SUM_TEXT="${SUM_TEXT}  • $(t "Interface:" "Интерфейс:")     ${IFACE}\n"
-    SUM_TEXT="${SUM_TEXT}  • $(t "Routing Mode:" "Маршрутизация:") ${SUMMARY_MODE}\n\n"
+    SUM_TEXT="${SUM_TEXT}  * $(t "Config file:" "Конфигурация:")   ${CONF_FILE}\n"
+    SUM_TEXT="${SUM_TEXT}  * $(t "Interface:" "Интерфейс:")     ${IFACE}\n"
+    SUM_TEXT="${SUM_TEXT}  * $(t "Routing Mode:" "Маршрутизация:") ${SUMMARY_MODE}\n\n"
     SUM_TEXT="${SUM_TEXT}$(t "Proceed with automated build and installation?" "Запустить автоматическую сборку и настройку?")"
 
     "${DIALOG}" --backtitle "${BACKTITLE}" \

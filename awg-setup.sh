@@ -370,6 +370,9 @@ do_uninstall() {
     pkg delete -y amnezia-tools amnezia-kmod 2>/dev/null || true
     pkg autoremove -y 2>/dev/null || true
 
+    pkill -f "monitor-daemon" 2>/dev/null || true
+    pkill -f "route.*monitor" 2>/dev/null || true
+
     rm -f "${RC_SCRIPT}" "${LOG_FILE}"
     rm -rf "${AWG_DIR}"
 
@@ -418,6 +421,8 @@ install_packages() {
         pkg install -y amnezia-tools || die "Не удалось установить amnezia-tools"
         ok "amnezia-tools установлен"
     fi
+    # Отключаем background route monitor в awg-quick, блокирующий завершение пайпов tee
+    sed -i '' 's/.*Backgrounding route monitor.*/return 0/' /usr/local/bin/awg-quick 2>/dev/null || true
 
     # amnezia-kmod (kernel module if_amn.ko)
     if pkg info amnezia-kmod > /dev/null 2>&1; then
@@ -433,8 +438,8 @@ install_packages() {
 load_kmod() {
     header "Модуль ядра"
 
-    if kldstat 2>/dev/null | grep -qE "if_amn|if_wg"; then
-        LOADED_MOD=$(kldstat | grep -E 'if_amn|if_wg' | awk '{print $5}' | head -1)
+    if kldstat 2>/dev/null | grep -q "if_amn"; then
+        LOADED_MOD=$(kldstat | grep if_amn | awk '{print $5}' | head -1)
         ok "Модуль уже загружен: ${LOADED_MOD}"
         return
     fi
@@ -730,6 +735,18 @@ verify() {
     fi
     if [ -n "${EXT_IP}" ]; then
         ok "$(t "External IP:" "Внешний IP:") ${EXT_IP}"
+    fi
+
+    # Проверка handshake с сервером
+    sleep 1
+    HANDSHAKE_TS=$(awg show "${IFACE}" latest-handshakes 2>/dev/null | awk '{print $2}')
+    if [ -n "${HANDSHAKE_TS}" ] && [ "${HANDSHAKE_TS}" -gt 0 ] 2>/dev/null; then
+        NOW=$(date +%s)
+        AGO=$((NOW - HANDSHAKE_TS))
+        if [ -n "${TMP_STATUS}" ]; then
+            echo "VERIF_AGO='${AGO}'" >> "${TMP_STATUS}"
+        fi
+        ok "$(t "Handshake with AmneziaWG server successful" "Handshake с сервером AmneziaWG успешно выполнен") (${AGO} $(t "sec ago" "сек назад"))"
     fi
 }
 

@@ -1,4 +1,4 @@
-**[🇷🇺 На русском языке](README.ru.md)**
+**[🇷🇺 На русском языке](README.ru.md)** | **[📖 Visual Setup Guide (Screenshots)](docs/MANUAL.md)**
 
 # AmneziaWG FreeBSD Setup + Split Tunneling
 
@@ -48,6 +48,8 @@ The wizard will guide you through:
 3. **Routing Mode**: Full tunnel vs Split tunneling.
 4. **Interactive Domain Manager**: Add or remove target domains/subnets before installation.
 5. **Real-time Verification**: Post-install DNS routing and external IP verification.
+
+> 📸 **Looking for a visual walkthrough with screenshots?** See the [Step-by-Step TUI Guide](docs/MANUAL.md).
 
 ---
 

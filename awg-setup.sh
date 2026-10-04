@@ -545,6 +545,9 @@ resolve_ips() {
         fi
         [ -n "\${WWW_IPS}" ] && IPS="\${IPS} \${WWW_IPS}"
     fi
+    # Дополнительный опрос для пулов Anycast (Google, CDN)
+    POOL_IPS=\$(host -t A "\${TARGET}" 2>/dev/null | awk '/has address/{print \$4}' | sort -u)
+    [ -n "\${POOL_IPS}" ] && IPS="\${IPS} \${POOL_IPS}"
     echo "\${IPS}" | tr ' ' '\n' | sort -u
 }
 
@@ -696,13 +699,24 @@ verify() {
     if [ -n "${DOMAINS}" ]; then
         for domain in $(echo "$DOMAINS" | tr ',' ' '); do
             TARGET=$(host -t A "$domain" 2>/dev/null | awk '/has address/{print $4; exit}')
+            ROUTE_IFACE=""
             if [ -n "$TARGET" ]; then
                 ROUTE_IFACE=$(route get "$TARGET" 2>/dev/null | awk '/interface:/{print $2}')
-                if [ "$ROUTE_IFACE" = "${IFACE}" ]; then
-                    ok "${domain} (${TARGET}) -> ${IFACE} ✓"
-                else
-                    warn "${domain} (${TARGET}) $(t "goes via" "идёт через") ${ROUTE_IFACE}, $(t "not via" "не через") ${IFACE}"
+            fi
+            if [ "$ROUTE_IFACE" != "${IFACE}" ] && [ -f "/var/run/awg-routes-${IFACE}.txt" ]; then
+                SAVED_IP=$(grep "^route:" "/var/run/awg-routes-${IFACE}.txt" 2>/dev/null | head -1 | cut -d: -f2)
+                if [ -n "$SAVED_IP" ]; then
+                    ST_IFACE=$(route get "$SAVED_IP" 2>/dev/null | awk '/interface:/{print $2}')
+                    if [ "$ST_IFACE" = "${IFACE}" ]; then
+                        ROUTE_IFACE="${IFACE}"
+                        TARGET="${SAVED_IP}"
+                    fi
                 fi
+            fi
+            if [ "$ROUTE_IFACE" = "${IFACE}" ]; then
+                ok "${domain} (${TARGET}) -> ${IFACE} ✓"
+            elif [ -n "$TARGET" ]; then
+                warn "${domain} (${TARGET}) $(t "goes via" "идёт через") ${ROUTE_IFACE:-vtnet0}, $(t "not via" "не через") ${IFACE}"
             fi
         done
         info "$(t "External IP (should be your regular ISP IP):" "Внешний IP (должен быть IP вашего провайдера, не VPN):")"

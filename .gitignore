@@ -1,0 +1,10 @@
+# Private configuration files and keys
+*.conf
+*.vpn
+*.key
+*.hpk
+
+# Logs and runtime files
+*.log
+*.tmp
+/var/

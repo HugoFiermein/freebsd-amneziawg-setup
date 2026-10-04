@@ -1,6 +1,6 @@
 #!/bin/sh
 # =============================================================================
-#  awg3-setup.sh — Установщик AmneziaWG 3.1 (AWG3) + split tunneling для FreeBSD
+#  awg3-setup.sh — Автоматический установщик AmneziaWG 3.1 (AWG3) для FreeBSD
 #
 #  Поддерживает протокол AmneziaWG 3.1:
 #    - HeaderProtectionKey (ChaCha20 шифрование заголовков пакетов)
@@ -8,7 +8,12 @@
 #    - RandomTrailers (рандомизация трейлеров до MTU)
 #    - DisableCookies (отключение cookie-ответов против сканирования)
 #    - RekeyAfterTime, RekeyTimeout, MaxHandshakeAttempts и др.
-#    - Обратная совместимость с параметрами AWG 1.0/2.0 (H1-H4, S1-S4, Jc/Jmin/Jmax)
+#
+#  Полная автоматизация:
+#    1. Автоматически зачищает старую версию AWG 2.x (пакеты, сервисы, модуль).
+#    2. Собирает драйвер ядра wireguard-amnezia-kmod v3.1.0 с поддержкой HeaderProtectionKey.
+#    3. Собирает утилиты awg/awg-quick v3.1 с поддержкой FreeBSD IPC.
+#    4. Настраивает автозапуск сервиса amneziawg3 и раздельное туннелирование.
 #
 #  Использование:
 #    sudo ./awg3-setup.sh -c /path/to/vpn.conf [-d "domain1,domain2"] [-i awg0]
@@ -43,14 +48,14 @@ usage() {
   -d DOMAIN Домены или IP/CIDR через запятую для раздельного туннелирования
             (по умолчанию: не задано — весь трафик идёт через VPN)
   -i IFACE  Имя интерфейса (default: awg0)
-  -u        Удалить всё
+  -u        Удалить всё (AmneziaWG 3.1)
   -h        Эта справка
 
 Примеры:
-  # Полный туннель AWG 3.1 (весь трафик через VPN):
+  # Полный туннель AWG 3.1 (весь интернет через VPN):
   sudo $0 -c /home/user/awg3.conf
 
-  # Раздельное туннелирование AWG 3.1 (трафик только для выбранных доменов и сетей):
+  # Раздельное туннелирование AWG 3.1 (трафик только для выбранных доменов и подсетей):
   sudo $0 -c /home/user/awg3.conf -d "rutracker.org,nnmclub.to,198.51.100.0/24"
 EOF
     exit 0
@@ -86,18 +91,17 @@ do_uninstall() {
     awg-quick down "${CONF_PATH}" 2>/dev/null || true
     ifconfig "${IFACE}" destroy   2>/dev/null || true
 
-    kldunload if_amn 2>/dev/null || true
     kldunload if_wg  2>/dev/null || true
-
-    pkg delete -y amnezia-tools amnezia-kmod 2>/dev/null || true
-    pkg autoremove -y 2>/dev/null || true
+    kldunload if_amn 2>/dev/null || true
 
     rm -f "${RC_SCRIPT}" "${LOG_FILE}"
     rm -rf "${AWG_DIR}"
+    rm -f /boot/modules/if_wg.ko /boot/modules/if_amn.ko
+    rm -f /usr/local/bin/awg /usr/local/bin/awg-quick
 
     sed -i '' '/amneziawg3/d'  /etc/rc.conf     2>/dev/null || true
-    sed -i '' '/if_amn_load/d' /boot/loader.conf 2>/dev/null || true
     sed -i '' '/if_wg_load/d'  /boot/loader.conf 2>/dev/null || true
+    sed -i '' '/if_amn_load/d' /boot/loader.conf 2>/dev/null || true
 
     ok "Удаление AmneziaWG 3.1 завершено"
     exit 0
@@ -110,6 +114,17 @@ check_os() {
     VER=$(uname -r | cut -d. -f1)
     [ "$VER" -ge 13 ] || die "Требуется FreeBSD 13+"
     ok "ОС: FreeBSD $(uname -r)"
+
+    if [ ! -d "/usr/src/sys" ]; then
+        warn "Исходные тексты ядра /usr/src/sys не обнаружены."
+        info "Устанавливаем исходники системы для сборки модуля ядра..."
+        pkg install -y git || true
+        git clone --depth 1 -b "releng/$(uname -r | cut -d- -f1,2)" https://git.freebsd.org/src.git /usr/src || \
+            die "Не удалось получить исходники ядра в /usr/src"
+        ok "Исходники ядра /usr/src готовы"
+    else
+        ok "Исходники ядра /usr/src/sys найдены"
+    fi
 }
 
 # =============================================================================
@@ -121,7 +136,7 @@ check_conf() {
     HAS_AWG3=0
     HAS_AWG2=0
 
-    # Проверка ключевых параметров AWG 3.1
+    # Проверка параметров AWG 3.1
     if grep -qiE "^ *(HeaderProtectionKey|ContentPaddingAddition|RandomTrailers|DisableCookies|RekeyAfterTime)" "${CONF_FILE}"; then
         HAS_AWG3=1
         ok "Обнаружены расширенные параметры протокола AWG 3.1:"
@@ -131,97 +146,117 @@ check_conf() {
         done
     fi
 
-    # Проверка базовых параметров обфускации AWG 1/2
+    # Проверка базовых параметров обфускации
     if grep -qiE "^ *(Jc|Jmin|Jmax|H1|H2|H3|H4|S1|S2|S3|S4)" "${CONF_FILE}"; then
         HAS_AWG2=1
-        ok "Обнаружены базовые параметры обфускации (Jc/Jmin/H1-H4/S1-S4)"
+        ok "Обнаружены параметры обфускации (Jc/Jmin/H1-H4/S1-S4)"
     fi
 
     if [ "$HAS_AWG3" -eq 1 ]; then
-        printf "${GREEN}${BOLD}>> Протокол: AmneziaWG 3.1 (полная защита от AI/DPI)${RESET}\n"
+        printf "${GREEN}${BOLD}>> Протокол: AmneziaWG 3.1 (активная защита заголовков ChaCha20 + Transport Padding)${RESET}\n"
     elif [ "$HAS_AWG2" -eq 1 ]; then
-        warn "Конфиг содержит параметры AWG 2.x, но параметры AWG 3.1 (HeaderProtectionKey) не найдены"
+        info "Конфиг содержит параметры AWG 2.x"
     else
-        warn "Параметры обфускации AmneziaWG не найдены — конфиг выглядит как стандартный WireGuard"
+        warn "Конфиг выглядит как стандартный WireGuard"
     fi
 
     ok "Конфиг: ${CONF_FILE}"
 }
 
 # =============================================================================
-# Сравнение версий semver (v1 >= v2)
-# =============================================================================
-version_ge() {
-    v1=$(echo "$1" | sed 's/[^0-9.]//g')
-    v2=$(echo "$2" | sed 's/[^0-9.]//g')
-    [ "$v1" = "$v2" ] && return 0
-    test "$(printf '%s\n%s\n' "$v2" "$v1" | sort -V | head -n1)" = "$v2"
+cleanup_old_awg() {
+    header "Очистка компонентов предыдущей версии AmneziaWG"
+
+    # Остановка старого сервиса amneziawg (v2), если он запущен
+    if service amneziawg status >/dev/null 2>&1 || ifconfig awg0 >/dev/null 2>&1; then
+        info "Останавливаем запущенный туннель/сервис предыдущей версии..."
+        service amneziawg stop 2>/dev/null || true
+        awg-quick down /usr/local/etc/amnezia/awg0.conf 2>/dev/null || true
+        ifconfig awg0 destroy 2>/dev/null || true
+    fi
+
+    # Отключение автозапуска старого сервиса
+    sysrc amneziawg_enable="NO" 2>/dev/null || true
+    sed -i '' '/amneziawg_enable/d' /etc/rc.conf 2>/dev/null || true
+
+    # Выгрузка старых модулей ядра
+    kldunload if_amn 2>/dev/null || true
+    kldunload if_wg  2>/dev/null || true
+
+    # Удаление несовместимых пакетов AWG 1/2 из pkg (они не знают HeaderProtectionKey)
+    if pkg info amnezia-tools >/dev/null 2>&1 || pkg info amnezia-kmod >/dev/null 2>&1; then
+        info "Удаляем устаревшие пакеты amnezia-tools/amnezia-kmod из pkg..."
+        pkg delete -y amnezia-tools amnezia-kmod 2>/dev/null || true
+        pkg autoremove -y 2>/dev/null || true
+    fi
+
+    ok "Система очищена от конфликтующих компонентов AWG 2.x"
 }
 
 # =============================================================================
-install_packages() {
-    header "Установка пакетов AmneziaWG 3.1"
+build_and_install_awg3() {
+    header "Сборка и установка компонентов AmneziaWG 3.1"
 
+    # Установка инструментов сборки
+    info "Установка сборочных утилит (git, gmake)..."
     pkg -N 2>/dev/null || pkg bootstrap -y || die "Не удалось инициализировать pkg"
+    pkg install -y git gmake bash || die "Не удалось установить git и gmake"
 
-    # Установка/проверка amnezia-tools
-    if ! pkg info amnezia-tools > /dev/null 2>&1; then
-        info "Устанавливаем amnezia-tools через pkg..."
-        pkg install -y amnezia-tools || true
+    # 1. Сборка драйвера ядра wireguard-amnezia-kmod (v3.1.0)
+    info "Сборка модуля ядра wireguard-amnezia-kmod v3.1.0..."
+    KMOD_BUILD_DIR="/tmp/awg3-kmod-build"
+    rm -rf "${KMOD_BUILD_DIR}"
+    git clone --depth 1 -b v3.1.0 https://github.com/vgrebenschikov/wireguard-amnezia-kmod.git "${KMOD_BUILD_DIR}" || \
+        die "Не удалось клонировать wireguard-amnezia-kmod"
+
+    make -C "${KMOD_BUILD_DIR}" clean
+    make -C "${KMOD_BUILD_DIR}" || die "Ошибка компиляции модуля ядра wireguard-amnezia-kmod"
+    make -C "${KMOD_BUILD_DIR}" install || die "Ошибка установки модуля ядра wireguard-amnezia-kmod"
+    rm -rf "${KMOD_BUILD_DIR}"
+    ok "Драйвер ядра AmneziaWG 3.1 собран и установлен в /boot/modules/if_wg.ko"
+
+    # 2. Сборка утилит amneziawg-tools с поддержкой AWG 3.1 и FreeBSD IPC (PR #77)
+    info "Сборка утилит awg и awg-quick (AWG 3.1)..."
+    TOOLS_BUILD_DIR="/tmp/awg3-tools-build"
+    rm -rf "${TOOLS_BUILD_DIR}"
+    git clone https://github.com/amnezia-vpn/amneziawg-tools.git "${TOOLS_BUILD_DIR}" || \
+        die "Не удалось клонировать amneziawg-tools"
+
+    # Подтягиваем патчи FreeBSD IPC для AWG 3.1 (PR #77 от vgrebenschikov)
+    git -C "${TOOLS_BUILD_DIR}" fetch origin pull/77/head:awg31 || die "Не удалось загрузить патч PR #77"
+    git -C "${TOOLS_BUILD_DIR}" checkout awg31
+
+    gmake -C "${TOOLS_BUILD_DIR}/src" clean
+    gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local || die "Ошибка компиляции amneziawg-tools"
+    gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local install || die "Ошибка установки amneziawg-tools"
+    rm -rf "${TOOLS_BUILD_DIR}"
+
+    # Проверка, что awg теперь знает HeaderProtectionKey
+    if strings /usr/local/bin/awg 2>/dev/null | grep -qi "header-protection-key"; then
+        ok "Утилита awg 3.1 успешно установлена (поддержка HeaderProtectionKey подтверждена)"
+    else
+        warn "Утилита awg установлена, но сигнатура HeaderProtectionKey не найдена"
     fi
-
-    # Установка/проверка amnezia-kmod
-    if ! pkg info amnezia-kmod > /dev/null 2>&1; then
-        info "Устанавливаем amnezia-kmod через pkg..."
-        pkg install -y amnezia-kmod || true
-    fi
-
-    # Проверка версий установленных пакетов
-    TOOLS_VER=$(pkg query '%v' amnezia-tools 2>/dev/null || echo "0.0.0")
-    KMOD_VER=$(pkg query '%v' amnezia-kmod 2>/dev/null || echo "0.0.0")
-
-    info "Версия amnezia-tools: ${TOOLS_VER}"
-    info "Версия amnezia-kmod:  ${KMOD_VER}"
-
-    # Для протокола AWG 3.1 требуется версия 3.1.0+
-    NEED_PORTS_BUILD=0
-    if ! version_ge "$KMOD_VER" "3.1.0" 2>/dev/null; then
-        warn "Версия amnezia-kmod (${KMOD_VER}) ниже 3.1.0 (требуется для протокола AWG 3.1)"
-        NEED_PORTS_BUILD=1
-    fi
-
-    if [ "$NEED_PORTS_BUILD" -eq 1 ]; then
-        if [ -d "/usr/ports/net/amnezia-kmod" ] && [ -d "/usr/ports/net/amnezia-tools" ]; then
-            info "В репозитории pkg старая версия. Собираем свежие amnezia-kmod и amnezia-tools из портов..."
-            make -C /usr/ports/net/amnezia-kmod BATCH=yes install clean || die "Ошибка сборки net/amnezia-kmod из портов"
-            make -C /usr/ports/net/amnezia-tools BATCH=yes install clean || die "Ошибка сборки net/amnezia-tools из портов"
-            ok "Сборка из портов успешно завершена"
-        else
-            warn "Дерево портов /usr/ports не найдено. Если возникнет ошибка при handshake AWG3, обновите порты: git clone https://git.freebsd.org/ports.git /usr/ports"
-        fi
-    fi
-
-    ok "Пакеты amnezia-tools и amnezia-kmod готовы"
 }
 
 # =============================================================================
 load_kmod() {
-    header "Модуль ядра if_amn"
+    header "Загрузка модуля ядра AWG 3.1"
 
-    if kldstat 2>/dev/null | grep -qE "if_amn|if_wg"; then
-        LOADED_MOD=$(kldstat | grep -E 'if_amn|if_wg' | awk '{print $5}' | head -1)
-        ok "Модуль уже загружен: ${LOADED_MOD}"
-        return
-    fi
+    # Выгружаем любые остаточные модули
+    kldunload if_amn 2>/dev/null || true
+    kldunload if_wg  2>/dev/null || true
 
-    info "Загружаем модуль if_amn..."
-    kldload if_amn || die "Не удалось загрузить модуль if_amn. Убедитесь, что модуль ядра установлен."
-    LOADED_MOD=$(kldstat | grep if_amn | awk '{print $5}' | head -1)
-    ok "Модуль загружен: ${LOADED_MOD}"
+    info "Загружаем модуль if_wg (v3.1.0)..."
+    kldload /boot/modules/if_wg.ko || die "Не удалось загрузить модуль /boot/modules/if_wg.ko"
+    LOADED_MOD=$(kldstat | grep -E 'if_wg|if_amn' | awk '{print $5}' | head -1)
+    ok "Модуль ядра загружен: ${LOADED_MOD}"
 
-    if ! grep -q "if_amn_load" /boot/loader.conf 2>/dev/null; then
-        echo 'if_amn_load="YES"' >> /boot/loader.conf
-        ok "Автозагрузка if_amn прописана в /boot/loader.conf"
+    # Настройка автозагрузки в /boot/loader.conf
+    sed -i '' '/if_amn_load/d' /boot/loader.conf 2>/dev/null || true
+    if ! grep -q "if_wg_load" /boot/loader.conf 2>/dev/null; then
+        echo 'if_wg_load="YES"' >> /boot/loader.conf
+        ok "Автозагрузка if_wg прописана в /boot/loader.conf"
     fi
 }
 
@@ -237,13 +272,11 @@ prepare_config() {
 
     # Настройка раздельного туннелирования при указании доменов/сетей (-d)
     if [ -n "${DOMAINS}" ]; then
-        # Отключаем перезапись дефолтного шлюза в awg-quick
         if ! grep -qi "^Table" "${CONF_PATH}"; then
             sed -i '' "/^\[[Ii][Nn][Tt][Ee][Rr][Ff][Aa][Cc][Ee]\]/a\\
 Table = off
 " "${CONF_PATH}"
         fi
-        # Добавляем хуки маршрутизации
         if ! grep -q "split-tunnel" "${CONF_PATH}"; then
             sed -i '' "/^\[[Ii][Nn][Tt][Ee][Rr][Ff][Aa][Cc][Ee]\]/a\\
 PostUp = ${ROUTE_SCRIPT} up %i\\
@@ -252,7 +285,7 @@ PostDown = ${ROUTE_SCRIPT} down %i
         fi
         ok "Режим: Раздельное туннелирование AWG 3.1 (Table = off + селективная маршрутизация)"
     else
-        ok "Режим: Полный туннель AWG 3.1 (весь интернет через VPN)"
+        ok "Режим: Полный туннель AWG 3.1 (весь трафик через VPN)"
     fi
 
     ok "Конфиг сохранён: ${CONF_PATH}"
@@ -298,7 +331,6 @@ get_dns_ip() {
 
 resolve_ips() {
     TARGET="\$1"
-    # Поддержка как доменов, так и готовых IP и CIDR сетей
     if echo "\${TARGET}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$'; then
         echo "\${TARGET}"
     else
@@ -319,14 +351,14 @@ do_up() {
         logger -t awg3-split "VPN server \${SERVER_IP} -> \${DEFAULT_GW}"
     fi
 
-    # Маршрут к DNS-серверу туннеля через интерфейс AWG 3.1 (если DNS указан)
+    # Маршрут к DNS-серверу туннеля через интерфейс AWG 3.1
     if [ -n "\${DNS_IP}" ] && echo "\${DNS_IP}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
         route add -host "\${DNS_IP}" -interface "\${IFACE}" 2>/dev/null || true
         echo "route:\${DNS_IP}" >> "\${STATE_FILE}"
         logger -t awg3-split "VPN DNS \${DNS_IP} -> \${IFACE}"
     fi
 
-    # Маршруты для целевых доменов и подсетей
+    # Маршруты для доменов и подсетей
     for domain in \${DOMAINS}; do
         ips=\$(resolve_ips "\${domain}")
         if [ -z "\${ips}" ]; then
@@ -400,7 +432,7 @@ status_cmd="amneziawg3_status"
 : \${amneziawg3_conf:="${CONF_PATH}"}
 
 amneziawg3_start() {
-    kldstat | grep -qE "if_amn|if_wg" || kldload if_amn
+    kldstat | grep -qE "if_wg|if_amn" || kldload /boot/modules/if_wg.ko
     awg-quick up "\${amneziawg3_conf}"
 }
 amneziawg3_stop()   { awg-quick down "\${amneziawg3_conf}" 2>/dev/null || true; }
@@ -424,7 +456,7 @@ RCEOF
 start_tunnel() {
     header "Запуск туннеля AWG 3.1"
 
-    # Если интерфейс уже существует — аккуратно опускаем
+    # Если интерфейс уже существует — опускаем
     if ifconfig "${IFACE}" > /dev/null 2>&1; then
         info "Интерфейс ${IFACE} уже активен — перезапуск..."
         awg-quick down "${CONF_PATH}" 2>/dev/null || ifconfig "${IFACE}" destroy 2>/dev/null || true
@@ -495,7 +527,8 @@ main() {
 
     check_os
     check_conf
-    install_packages
+    cleanup_old_awg
+    build_and_install_awg3
     load_kmod
     prepare_config
     if [ -n "${DOMAINS}" ]; then

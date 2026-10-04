@@ -678,9 +678,27 @@ resolve_ips() {
     TARGET="\$1"
     if echo "\${TARGET}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$'; then
         echo "\${TARGET}"
-    else
-        host -t A "\${TARGET}" 2>/dev/null | awk '/has address/{print \$4}' | sort -u
+        return
     fi
+    IPS=\$(host -t A "\${TARGET}" 2>/dev/null | awk '/has address/{print \$4}' | sort -u)
+    if [ -z "\${IPS}" ] && [ -n "\${DNS_IP}" ]; then
+        IPS=\$(host -t A "\${TARGET}" "\${DNS_IP}" 2>/dev/null | awk '/has address/{print \$4}' | sort -u)
+    fi
+    if [ -z "\${IPS}" ]; then
+        sleep 1
+        IPS=\$(host -t A "\${TARGET}" 2>/dev/null | awk '/has address/{print \$4}' | sort -u)
+        if [ -z "\${IPS}" ] && [ -n "\${DNS_IP}" ]; then
+            IPS=\$(host -t A "\${TARGET}" "\${DNS_IP}" 2>/dev/null | awk '/has address/{print \$4}' | sort -u)
+        fi
+    fi
+    if ! echo "\${TARGET}" | grep -qi '^www\.'; then
+        WWW_IPS=\$(host -t A "www.\${TARGET}" 2>/dev/null | awk '/has address/{print \$4}' | sort -u)
+        if [ -z "\${WWW_IPS}" ] && [ -n "\${DNS_IP}" ]; then
+            WWW_IPS=\$(host -t A "www.\${TARGET}" "\${DNS_IP}" 2>/dev/null | awk '/has address/{print \$4}' | sort -u)
+        fi
+        [ -n "\${WWW_IPS}" ] && IPS="\${IPS} \${WWW_IPS}"
+    fi
+    echo "\${IPS}" | tr ' ' '\n' | sort -u
 }
 
 do_up() {
@@ -702,6 +720,13 @@ do_up() {
         echo "route:\${DNS_IP}" >> "\${STATE_FILE}"
         logger -t awg3-split "VPN DNS \${DNS_IP} -> \${IFACE}"
     fi
+
+    # Ожидаем завершения handshake туннеля (до 5 секунд) для готовности DNS
+    for _i in 1 2 3 4 5; do
+        _HS=\$(awg show "\${IFACE}" latest-handshakes 2>/dev/null | awk '{print \$2}')
+        [ -n "\${_HS}" ] && [ "\${_HS}" -gt 0 ] 2>/dev/null && break
+        sleep 1
+    done
 
     # Маршруты для доменов и подсетей
     for domain in \${DOMAINS}; do

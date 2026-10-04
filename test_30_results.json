@@ -1,0 +1,443 @@
+[
+  {
+    "test_id": 1,
+    "name": "RuTracker (Cloudflare)",
+    "domains": "rutracker.org",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "rutracker.org -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://rutracker.org (Password:301)"
+    ],
+    "duration": 20.1
+  },
+  {
+    "test_id": 2,
+    "name": "NNM-Club (Cloudflare)",
+    "domains": "nnmclub.to",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "nnmclub.to -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://nnmclub.to (Password:403)"
+    ],
+    "duration": 18.5
+  },
+  {
+    "test_id": 3,
+    "name": "Facebook (Meta Anycast)",
+    "domains": "facebook.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "facebook.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://facebook.com (Password:301)"
+    ],
+    "duration": 19.1
+  },
+  {
+    "test_id": 4,
+    "name": "Instagram (Meta Anycast)",
+    "domains": "instagram.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "instagram.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://instagram.com (Password:301)"
+    ],
+    "duration": 19.1
+  },
+  {
+    "test_id": 5,
+    "name": "X / Twitter (Dual Domain)",
+    "domains": "twitter.com,x.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "twitter.com -> awg0 ✓",
+      "x.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://x.com (Password:200)"
+    ],
+    "duration": 20.2
+  },
+  {
+    "test_id": 6,
+    "name": "LinkedIn (Microsoft)",
+    "domains": "linkedin.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "linkedin.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://linkedin.com (Password:200)"
+    ],
+    "duration": 19.6
+  },
+  {
+    "test_id": 7,
+    "name": "BBC & DW (News Portal)",
+    "domains": "bbc.com,dw.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "bbc.com -> awg0 ✓",
+      "dw.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://bbc.com (Password:301)"
+    ],
+    "duration": 20.1
+  },
+  {
+    "test_id": 8,
+    "name": "Meduza (Independent Media)",
+    "domains": "meduza.io",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "meduza.io -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://meduza.io (Password:200)"
+    ],
+    "duration": 19.1
+  },
+  {
+    "test_id": 9,
+    "name": "Flibusta (Book Library)",
+    "domains": "flibusta.club",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "flibusta.club -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://flibusta.club (Password:200)"
+    ],
+    "duration": 19.1
+  },
+  {
+    "test_id": 10,
+    "name": "Wikipedia (Wikimedia Anycast)",
+    "domains": "wikipedia.org",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "wikipedia.org -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://wikipedia.org (Password:301)"
+    ],
+    "duration": 19.6
+  },
+  {
+    "test_id": 11,
+    "name": "GitHub & GitLab",
+    "domains": "github.com,gitlab.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "github.com -> awg0 ✓",
+      "gitlab.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://github.com (Password:200)"
+    ],
+    "duration": 25.2
+  },
+  {
+    "test_id": 12,
+    "name": "OpenAI & ChatGPT",
+    "domains": "openai.com,chatgpt.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "openai.com -> awg0 ✓",
+      "chatgpt.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://openai.com (Password:403)"
+    ],
+    "duration": 20.1
+  },
+  {
+    "test_id": 13,
+    "name": "Anthropic & Claude",
+    "domains": "claude.ai,anthropic.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "claude.ai -> awg0 ✓",
+      "anthropic.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://anthropic.com (Password:301)"
+    ],
+    "duration": 20.1
+  },
+  {
+    "test_id": 14,
+    "name": "Docker & Hub",
+    "domains": "docker.com,hub.docker.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "docker.com -> awg0 ✓",
+      "hub.docker.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://docker.com (Password:000)"
+    ],
+    "duration": 26.0
+  },
+  {
+    "test_id": 15,
+    "name": "YouTube (Google CDN)",
+    "domains": "youtube.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "youtube.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://youtube.com (Password:301)"
+    ],
+    "duration": 20.5
+  },
+  {
+    "test_id": 16,
+    "name": "Twitch (Amazon Video)",
+    "domains": "twitch.tv",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "twitch.tv -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://twitch.tv (Password:301)"
+    ],
+    "duration": 19.0
+  },
+  {
+    "test_id": 17,
+    "name": "Discord (VoIP & Chat)",
+    "domains": "discord.com,discordapp.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "discord.com -> awg0 ✓",
+      "discordapp.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://discord.com (Password:200)"
+    ],
+    "duration": 20.1
+  },
+  {
+    "test_id": 18,
+    "name": "Spotify (Audio Streaming)",
+    "domains": "spotify.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "spotify.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://spotify.com (Password:301)"
+    ],
+    "duration": 19.6
+  },
+  {
+    "test_id": 19,
+    "name": "Netflix (Global CDN)",
+    "domains": "netflix.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "netflix.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://netflix.com (Password:301)"
+    ],
+    "duration": 19.5
+  },
+  {
+    "test_id": 20,
+    "name": "Reddit (Fastly CDN)",
+    "domains": "reddit.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "reddit.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://reddit.com (Password:301)"
+    ],
+    "duration": 19.8
+  },
+  {
+    "test_id": 21,
+    "name": "Medium (Publishing)",
+    "domains": "medium.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "medium.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://medium.com (Password:403)"
+    ],
+    "duration": 19.5
+  },
+  {
+    "test_id": 22,
+    "name": "Quora (Q&A)",
+    "domains": "quora.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "quora.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://quora.com (Password:308)"
+    ],
+    "duration": 19.1
+  },
+  {
+    "test_id": 23,
+    "name": "StackOverflow (StackExchange)",
+    "domains": "stackoverflow.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "stackoverflow.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://stackoverflow.com (Password:302)"
+    ],
+    "duration": 20.5
+  },
+  {
+    "test_id": 24,
+    "name": "Hacker News (YCombinator)",
+    "domains": "news.ycombinator.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "news.ycombinator.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://news.ycombinator.com (Password:200)"
+    ],
+    "duration": 21.1
+  },
+  {
+    "test_id": 25,
+    "name": "Proton (Encrypted Mail/VPN)",
+    "domains": "proton.me,protonmail.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "proton.me -> awg0 ✓",
+      "protonmail.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://proton.me (Password:200)"
+    ],
+    "duration": 21.0
+  },
+  {
+    "test_id": 26,
+    "name": "Internet Archive",
+    "domains": "archive.org",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "archive.org -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://archive.org (Password:200)"
+    ],
+    "duration": 19.0
+  },
+  {
+    "test_id": 27,
+    "name": "Telegram (Web & Shortlink)",
+    "domains": "telegram.org,t.me",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "telegram.org -> awg0 ✓",
+      "t.me -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://t.me (Password:302)"
+    ],
+    "duration": 19.6
+  },
+  {
+    "test_id": 28,
+    "name": "Cloudflare DNS + Google DNS",
+    "domains": "1.1.1.1/32,dns.google",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "1.1.1.1/32 -> awg0 ✓",
+      "dns.google -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://dns.google (Password:200)"
+    ],
+    "duration": 19.6
+  },
+  {
+    "test_id": 29,
+    "name": "Trio Blocked Bundle",
+    "domains": "rutracker.org,facebook.com,x.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "rutracker.org -> awg0 ✓",
+      "facebook.com -> awg0 ✓",
+      "x.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://rutracker.org (Password:301)",
+      "https://facebook.com (Password:301)"
+    ],
+    "duration": 22.1
+  },
+  {
+    "test_id": 30,
+    "name": "Octa Mega-Bundle (8 Domains)",
+    "domains": "rutracker.org,nnmclub.to,facebook.com,instagram.com,twitter.com,x.com,linkedin.com,bbc.com",
+    "status": "PASS",
+    "handshake": 0,
+    "routes": [
+      "rutracker.org -> awg0 ✓",
+      "nnmclub.to -> awg0 ✓",
+      "facebook.com -> awg0 ✓",
+      "instagram.com -> awg0 ✓",
+      "twitter.com -> awg0 ✓",
+      "x.com -> awg0 ✓",
+      "linkedin.com -> awg0 ✓",
+      "bbc.com -> awg0 ✓"
+    ],
+    "http_checks": [
+      "https://rutracker.org (Password:301)",
+      "https://nnmclub.to (Password:403)"
+    ],
+    "duration": 26.1
+  }
+]

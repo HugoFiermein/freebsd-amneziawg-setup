@@ -232,9 +232,9 @@ build_and_install_awg3() {
     info "Патчим awg-quick для работы с нативным модулем ядра if_wg.ko и утилитой awg 3.1..."
     sed -i '' 's/cmd="amneziawg-go "\$INTERFACE"";/:;/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
     sed -i '' 's/\${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}/ifconfig wg create name/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
-    sed -i '' 's/\bcmd wg setconf\b/cmd awg setconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
-    sed -i '' 's/\bcmd wg showconf\b/cmd awg showconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
-    sed -i '' 's/\bwg show\b/awg show/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+    sed -i '' 's/cmd wg setconf/cmd awg setconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+    sed -i '' 's/cmd wg showconf/cmd awg showconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+    sed -i '' 's/wg show/awg show/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
 
     gmake -C "${TOOLS_BUILD_DIR}/src" clean
     gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local || die "Ошибка компиляции amneziawg-tools"
@@ -244,9 +244,9 @@ build_and_install_awg3() {
     # Дополнительная страховка: патчим установленный /usr/local/bin/awg-quick
     sed -i '' 's/cmd="amneziawg-go "\$INTERFACE"";/:;/' /usr/local/bin/awg-quick 2>/dev/null || true
     sed -i '' 's/\${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}/ifconfig wg create name/g' /usr/local/bin/awg-quick 2>/dev/null || true
-    sed -i '' 's/\bcmd wg setconf\b/cmd awg setconf/g' /usr/local/bin/awg-quick 2>/dev/null || true
-    sed -i '' 's/\bcmd wg showconf\b/cmd awg showconf/g' /usr/local/bin/awg-quick 2>/dev/null || true
-    sed -i '' 's/\bwg show\b/awg show/g' /usr/local/bin/awg-quick 2>/dev/null || true
+    sed -i '' 's/cmd wg setconf/cmd awg setconf/g' /usr/local/bin/awg-quick 2>/dev/null || true
+    sed -i '' 's/cmd wg showconf/cmd awg showconf/g' /usr/local/bin/awg-quick 2>/dev/null || true
+    sed -i '' 's/wg show/awg show/g' /usr/local/bin/awg-quick 2>/dev/null || true
 
     # Создаём симлинк /usr/local/bin/wg -> /usr/local/bin/awg
     ln -sf /usr/local/bin/awg /usr/local/bin/wg

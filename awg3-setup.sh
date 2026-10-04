@@ -226,10 +226,21 @@ build_and_install_awg3() {
     git -C "${TOOLS_BUILD_DIR}" fetch origin pull/77/head:awg31 || die "Не удалось загрузить патч PR #77"
     git -C "${TOOLS_BUILD_DIR}" checkout awg31
 
+    # Патчим awg-quick для FreeBSD:
+    # Заставляем awg-quick создавать нативный ядерный интерфейс (ifconfig wg create name $INTERFACE),
+    # а не пытаться вызывать несуществующий userspace-демон amneziawg-go
+    info "Патчим awg-quick для работы с нативным модулем ядра FreeBSD if_wg.ko..."
+    sed -i '' 's/cmd="amneziawg-go "\$INTERFACE"";/:;/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+    sed -i '' 's/\${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}/ifconfig wg create name/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+
     gmake -C "${TOOLS_BUILD_DIR}/src" clean
     gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local || die "Ошибка компиляции amneziawg-tools"
     gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local install || die "Ошибка установки amneziawg-tools"
     rm -rf "${TOOLS_BUILD_DIR}"
+
+    # Дополнительная страховка: патчим установленный /usr/local/bin/awg-quick
+    sed -i '' 's/cmd="amneziawg-go "\$INTERFACE"";/:;/' /usr/local/bin/awg-quick 2>/dev/null || true
+    sed -i '' 's/\${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}/ifconfig wg create name/g' /usr/local/bin/awg-quick 2>/dev/null || true
 
     # Проверка, что awg теперь знает HeaderProtectionKey
     if strings /usr/local/bin/awg 2>/dev/null | grep -qi "header-protection-key"; then

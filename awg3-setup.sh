@@ -735,7 +735,7 @@ do_up() {
     for domain in \${DOMAINS}; do
         ips=\$(resolve_ips "\${domain}")
         if [ -z "\${ips}" ]; then
-            logger -t awg3-split "WARN: не удалось разрезолвить \${domain}"
+            logger -t awg3-split "WARN: failed to resolve \${domain}"
             continue
         fi
         for ip in \${ips}; do
@@ -778,12 +778,12 @@ esac
 SCRIPT
 
     chmod +x "${ROUTE_SCRIPT}"
-    ok "Скрипт split tunneling: ${ROUTE_SCRIPT}"
+    ok "$(t "Split tunneling script:" "Скрипт split tunneling:") ${ROUTE_SCRIPT}"
 }
 
 # =============================================================================
 create_rc_script() {
-    header "Автозапуск сервиса amneziawg3"
+    header "$(t "Service Autostart: amneziawg3" "Автозапуск сервиса amneziawg3")"
 
     cat > "${RC_SCRIPT}" << RCEOF
 #!/bin/sh
@@ -814,7 +814,7 @@ amneziawg3_stop()   { /usr/local/bin/awg-quick down "\${amneziawg3_conf}" 2>/dev
 amneziawg3_status() {
     ifconfig "${IFACE}" > /dev/null 2>&1 \
         && /usr/local/bin/awg show "${IFACE}" \
-        || { echo "Остановлен"; return 1; }
+        || { echo "Stopped"; return 1; }
 }
 
 load_rc_config \$name

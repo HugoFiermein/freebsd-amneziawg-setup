@@ -356,7 +356,7 @@ show_final_dialog() {
 
 # =============================================================================
 do_uninstall() {
-    header "Удаление AmneziaWG"
+    header "$(t "Uninstalling AmneziaWG" "Удаление AmneziaWG")"
 
     if [ -x "${RC_SCRIPT}" ]; then
         service amneziawg stop 2>/dev/null || true
@@ -380,23 +380,23 @@ do_uninstall() {
     sed -i '' '/if_amn_load/d' /boot/loader.conf 2>/dev/null || true
     sed -i '' '/if_wg_load/d'  /boot/loader.conf 2>/dev/null || true
 
-    ok "Удаление завершено"
+    ok "$(t "Uninstall complete" "Удаление завершено")"
     exit 0
 }
 
 # =============================================================================
 check_os() {
-    header "Проверка окружения"
-    [ "$(uname -s)" = "FreeBSD" ] || die "Только FreeBSD"
+    header "$(t "Environment Check" "Проверка окружения")"
+    [ "$(uname -s)" = "FreeBSD" ] || die "$(t "FreeBSD only" "Только FreeBSD")"
     VER=$(uname -r | cut -d. -f1)
-    [ "$VER" -ge 13 ] || die "Требуется FreeBSD 13+"
-    ok "ОС: FreeBSD $(uname -r)"
+    [ "$VER" -ge 13 ] || die "$(t "Requires FreeBSD 13+" "Требуется FreeBSD 13+")"
+    ok "$(t "OS: FreeBSD" "ОС: FreeBSD") $(uname -r)"
 }
 
 # =============================================================================
 check_conf() {
-    header "Конфигурационный файл"
-    [ -n "${CONF_FILE}" ] || die "Укажите конфиг: $0 -c /path/to/vpn.conf"
+    header "$(t "Configuration File" "Конфигурационный файл")"
+    [ -n "${CONF_FILE}" ] || die "$(t "Specify config: $0 -c /path/to/vpn.conf" "Укажите конфиг: $0 -c /path/to/vpn.conf")"
     if grep -qiE "^ *(HeaderProtectionKey|ContentPaddingAddition)" "${CONF_FILE}"; then
         warn "$(t "Detected AWG 3.1 parameters. Consider using ./awg3-setup.sh" "Обнаружены параметры AWG 3.1. Рекомендуется использовать ./awg3-setup.sh")"
     fi
@@ -410,56 +410,56 @@ check_conf() {
 
 # =============================================================================
 install_packages() {
-    header "Установка пакетов"
+    header "$(t "Installing Packages" "Установка пакетов")"
 
     # Инициализация pkg при необходимости
-    pkg -N 2>/dev/null || pkg bootstrap -y || die "Не удалось инициализировать pkg"
+    pkg -N 2>/dev/null || pkg bootstrap -y || die "$(t "Failed to bootstrap pkg" "Не удалось инициализировать pkg")"
 
     # amnezia-tools (awg + awg-quick)
     if pkg info amnezia-tools > /dev/null 2>&1; then
-        ok "amnezia-tools уже установлен"
+        ok "$(t "amnezia-tools already installed" "amnezia-tools уже установлен")"
     else
-        info "Устанавливаем amnezia-tools..."
-        pkg install -y amnezia-tools || die "Не удалось установить amnezia-tools"
-        ok "amnezia-tools установлен"
+        info "$(t "Installing amnezia-tools..." "Устанавливаем amnezia-tools...")"
+        pkg install -y amnezia-tools || die "$(t "Failed to install amnezia-tools" "Не удалось установить amnezia-tools")"
+        ok "$(t "amnezia-tools installed" "amnezia-tools установлен")"
     fi
     # Отключаем background route monitor в awg-quick, блокирующий завершение пайпов tee
     sed -i '' 's/.*Backgrounding route monitor.*/return 0/' /usr/local/bin/awg-quick 2>/dev/null || true
 
     # amnezia-kmod (kernel module if_amn.ko)
     if pkg info amnezia-kmod > /dev/null 2>&1; then
-        ok "amnezia-kmod уже установлен"
+        ok "$(t "amnezia-kmod already installed" "amnezia-kmod уже установлен")"
     else
-        info "Устанавливаем amnezia-kmod..."
-        pkg install -y amnezia-kmod || die "Не удалось установить amnezia-kmod"
-        ok "amnezia-kmod установлен"
+        info "$(t "Installing amnezia-kmod..." "Устанавливаем amnezia-kmod...")"
+        pkg install -y amnezia-kmod || die "$(t "Failed to install amnezia-kmod" "Не удалось установить amnezia-kmod")"
+        ok "$(t "amnezia-kmod installed" "amnezia-kmod установлен")"
     fi
 }
 
 # =============================================================================
 load_kmod() {
-    header "Модуль ядра"
+    header "$(t "Kernel Module" "Модуль ядра")"
 
     if kldstat 2>/dev/null | grep -q "if_amn"; then
         LOADED_MOD=$(kldstat | grep if_amn | awk '{print $5}' | head -1)
-        ok "Модуль уже загружен: ${LOADED_MOD}"
+        ok "$(t "Module already loaded:" "Модуль уже загружен:") ${LOADED_MOD}"
         return
     fi
 
-    info "Загружаем модуль if_amn..."
-    kldload if_amn || die "Не удалось загрузить модуль if_amn"
+    info "$(t "Loading if_amn module..." "Загружаем модуль if_amn...")"
+    kldload if_amn || die "$(t "Failed to load if_amn module" "Не удалось загрузить модуль if_amn")"
     LOADED_MOD=$(kldstat | grep if_amn | awk '{print $5}' | head -1)
-    ok "Модуль загружен: ${LOADED_MOD}"
+    ok "$(t "Kernel module loaded:" "Модуль загружен:") ${LOADED_MOD}"
 
     if ! grep -q "if_amn_load" /boot/loader.conf 2>/dev/null; then
         echo 'if_amn_load="YES"' >> /boot/loader.conf
-        ok "Автозагрузка прописана в /boot/loader.conf"
+        ok "$(t "Auto-load if_amn added to /boot/loader.conf" "Автозагрузка прописана в /boot/loader.conf")"
     fi
 }
 
 # =============================================================================
 prepare_config() {
-    header "Конфигурация"
+    header "$(t "Configuration" "Конфигурация")"
 
     mkdir -p "${AWG_DIR}"
     chmod 700 "${AWG_DIR}"
@@ -482,17 +482,17 @@ PostUp = ${ROUTE_SCRIPT} up %i\\
 PostDown = ${ROUTE_SCRIPT} down %i
 " "${CONF_PATH}"
         fi
-        ok "Режим: Раздельное туннелирование (Table = off + маршрутизация)"
+        ok "$(t "Mode: Split Tunneling (Table = off + selective routing)" "Режим: Раздельное туннелирование (Table = off + маршрутизация)")"
     else
-        ok "Режим: Полный туннель (весь трафик через VPN)"
+        ok "$(t "Mode: Full Tunnel (all traffic via VPN)" "Режим: Полный туннель (весь трафик через VPN)")"
     fi
 
-    ok "Конфиг сохранён: ${CONF_PATH}"
+    ok "$(t "Config saved:" "Конфиг сохранён:") ${CONF_PATH}"
 }
 
 # =============================================================================
 create_route_script() {
-    header "Split tunneling"
+    header "$(t "Split Tunneling" "Раздельное туннелирование")"
 
     DOMAINS_LIST=$(echo "$DOMAINS" | tr ',' ' ')
 
@@ -589,7 +589,7 @@ do_up() {
     for domain in \${DOMAINS}; do
         ips=\$(resolve_ips "\${domain}")
         if [ -z "\${ips}" ]; then
-            logger -t awg-split "WARN: не удалось разрезолвить \${domain}"
+            logger -t awg-split "WARN: failed to resolve \${domain}"
             continue
         fi
         for ip in \${ips}; do
@@ -632,12 +632,12 @@ esac
 SCRIPT
 
     chmod +x "${ROUTE_SCRIPT}"
-    ok "Скрипт split tunneling: ${ROUTE_SCRIPT}"
+    ok "$(t "Split tunneling script:" "Скрипт split tunneling:") ${ROUTE_SCRIPT}"
 }
 
 # =============================================================================
 create_rc_script() {
-    header "Автозапуск"
+    header "$(t "Service Autostart: amneziawg" "Автозапуск сервиса amneziawg")"
 
     cat > "${RC_SCRIPT}" << RCEOF
 #!/bin/sh
@@ -668,7 +668,7 @@ amneziawg_stop()   { /usr/local/bin/awg-quick down "\${amneziawg_conf}" 2>/dev/n
 amneziawg_status() {
     ifconfig "${IFACE}" > /dev/null 2>&1 \
         && /usr/local/bin/awg show "${IFACE}" \
-        || { echo "Остановлен"; return 1; }
+        || { echo "Stopped"; return 1; }
 }
 
 load_rc_config \$name
@@ -678,25 +678,25 @@ RCEOF
     chmod +x "${RC_SCRIPT}"
     grep -q "amneziawg_enable" /etc/rc.conf 2>/dev/null \
         || echo 'amneziawg_enable="YES"' >> /etc/rc.conf
-    ok "Автозапуск настроен"
+    ok "$(t "amneziawg service configured in /etc/rc.conf" "Автозапуск сервиса amneziawg настроен в /etc/rc.conf")"
 }
 
 # =============================================================================
 start_tunnel() {
-    header "Запуск туннеля"
+    header "$(t "Starting AWG Tunnel" "Запуск туннеля AWG")"
 
     # Если интерфейс уже существует — опускаем его перед подъёмом
     if ifconfig "${IFACE}" > /dev/null 2>&1; then
-        info "Интерфейс ${IFACE} уже существует — перезапускаем..."
+        info "$(t "Interface ${IFACE} already active — restarting..." "Интерфейс ${IFACE} уже существует — перезапускаем...")"
         awg-quick down "${CONF_PATH}" 2>/dev/null || ifconfig "${IFACE}" destroy 2>/dev/null || true
         sleep 1
     fi
 
-    info "Поднимаем туннель через awg-quick..."
-    awg-quick up "${CONF_PATH}" || die "Не удалось поднять туннель"
+    info "$(t "Bringing up tunnel via awg-quick..." "Поднимаем туннель через awg-quick...")"
+    awg-quick up "${CONF_PATH}" || die "$(t "Failed to start tunnel" "Не удалось поднять туннель")"
 
-    ifconfig "${IFACE}" > /dev/null 2>&1 || die "Интерфейс ${IFACE} не появился"
-    ok "Туннель ${IFACE} активен"
+    ifconfig "${IFACE}" > /dev/null 2>&1 || die "$(t "Interface ${IFACE} did not appear" "Интерфейс ${IFACE} не появился")"
+    ok "$(t "Tunnel ${IFACE} active" "Туннель ${IFACE} активен")"
     awg show "${IFACE}"
 }
 

@@ -100,6 +100,12 @@ do_uninstall() {
     rm -f /usr/local/bin/awg /usr/local/bin/awg-quick
     pkill -f "route.*monitor" 2>/dev/null || true
 
+    if [ -f "/boot/kernel/if_wg.ko.stock" ]; then
+        cp -fp /boot/kernel/if_wg.ko.stock /boot/kernel/if_wg.ko
+        rm -f /boot/kernel/if_wg.ko.stock
+        kldxref /boot/kernel 2>/dev/null || true
+    fi
+    sysrc -x amneziawg3_enable 2>/dev/null || true
     sed -i '' '/amneziawg3/d'  /etc/rc.conf     2>/dev/null || true
     sed -i '' '/if_wg_load/d'  /boot/loader.conf 2>/dev/null || true
     sed -i '' '/if_amn_load/d' /boot/loader.conf 2>/dev/null || true
@@ -270,8 +276,21 @@ load_kmod() {
     kldunload if_amn 2>/dev/null || true
     kldunload if_wg  2>/dev/null || true
 
+    # Если в базовой системе есть стандартный WireGuard /boot/kernel/if_wg.ko,
+    # сохраняем резервную копию и заменяем его на собранный модуль AmneziaWG 3.1.
+    # Это гарантирует, что при перезагрузке FreeBSD не загрузит несовместимый базовый модуль.
+    if [ -f "/boot/kernel/if_wg.ko" ]; then
+        if [ ! -f "/boot/kernel/if_wg.ko.stock" ]; then
+            cp -p /boot/kernel/if_wg.ko /boot/kernel/if_wg.ko.stock
+            info "Создана резервная копия стандартного модуля WireGuard: /boot/kernel/if_wg.ko.stock"
+        fi
+        cp -fp /boot/modules/if_wg.ko /boot/kernel/if_wg.ko
+        kldxref /boot/kernel 2>/dev/null || true
+        ok "Синхронизирован модуль ядра /boot/kernel/if_wg.ko для автозагрузки"
+    fi
+
     info "Загружаем модуль if_wg (v3.1.0)..."
-    kldload /boot/modules/if_wg.ko || die "Не удалось загрузить модуль /boot/modules/if_wg.ko"
+    kldload /boot/modules/if_wg.ko 2>/dev/null || kldload if_wg || die "Не удалось загрузить модуль /boot/modules/if_wg.ko"
     LOADED_MOD=$(kldstat | grep -E 'if_wg|if_amn' | awk '{print $5}' | head -1)
     ok "Модуль ядра загружен: ${LOADED_MOD}"
 
@@ -446,7 +465,7 @@ create_rc_script() {
     cat > "${RC_SCRIPT}" << RCEOF
 #!/bin/sh
 # PROVIDE: amneziawg3
-# REQUIRE: NETWORKING
+# REQUIRE: DAEMON NETWORKING
 # KEYWORD: shutdown
 
 . /etc/rc.subr
@@ -465,7 +484,7 @@ status_cmd="amneziawg3_status"
 : \${amneziawg3_conf:="${CONF_PATH}"}
 
 amneziawg3_start() {
-    kldstat | grep -qE "if_wg|if_amn" || kldload /boot/modules/if_wg.ko
+    kldstat | grep -qE "if_wg|if_amn" || kldload /boot/modules/if_wg.ko 2>/dev/null || kldload if_wg
     /usr/local/bin/awg-quick up "\${amneziawg3_conf}"
 }
 amneziawg3_stop()   { /usr/local/bin/awg-quick down "\${amneziawg3_conf}" 2>/dev/null || true; }
@@ -480,8 +499,7 @@ run_rc_command "\$1"
 RCEOF
 
     chmod +x "${RC_SCRIPT}"
-    grep -q "amneziawg3_enable" /etc/rc.conf 2>/dev/null \
-        || echo 'amneziawg3_enable="YES"' >> /etc/rc.conf
+    sysrc amneziawg3_enable="YES"
     ok "Автозапуск сервиса amneziawg3 настроен в /etc/rc.conf"
 }
 

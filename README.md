@@ -5,7 +5,7 @@
 Automated installer and configuration tool for **AmneziaWG** on **FreeBSD 13/14/15** with native kernel module performance and optional domain/subnet split tunneling.
 
 This repository provides two specialized scripts:
-* **[`awg-setup.sh`](awg-setup.sh)** — Universal installer for standard AmneziaWG 2.x protocol (`Jc`, `Jmin`, `Jmax`, `H1-H4`, `S1-S4`).
+* **[`awg2-setup.sh`](awg2-setup.sh)** — Universal installer for **AmneziaWG 2.0 / 1.0 (AWG2)** protocol (`Jc`, `Jmin`, `Jmax`, `H1-H4`, `S1-S4`).
 * **[`awg3-setup.sh`](awg3-setup.sh)** — Installer for the newer **AmneziaWG 3.1 (AWG3)** protocol, featuring ChaCha20 packet header encryption (`HeaderProtectionKey`), dynamic transport padding (`ContentPaddingAddition`), random trailers, and protection against AI/behavioral DPI analysis.
 
 ---
@@ -38,8 +38,8 @@ Simply run the script with root privileges without arguments to launch the nativ
 # For AmneziaWG 3.1:
 sudo ./awg3-setup.sh
 
-# For standard AmneziaWG 2.x:
-sudo ./awg-setup.sh
+# For AmneziaWG 2.0 / 1.0:
+sudo ./awg2-setup.sh
 ```
 
 The wizard will guide you through:
@@ -55,14 +55,14 @@ The wizard will guide you through:
 
 You can also pass arguments directly for headless or automated deployments:
 
-#### 1. AmneziaWG (Standard / 2.x)
+#### 1. AmneziaWG 2.0 / 1.0 (AWG2)
 
 ```bash
 # Full tunnel (route all internet traffic through VPN):
-sudo ./awg-setup.sh -c /path/to/vpn.conf
+sudo ./awg2-setup.sh -c /path/to/vpn.conf
 
 # Split tunneling (only route specified domains and subnets through VPN):
-sudo ./awg-setup.sh -c /path/to/vpn.conf -d "rutracker.org,nnmclub.to,198.51.100.0/24"
+sudo ./awg2-setup.sh -c /path/to/vpn.conf -d "rutracker.org,nnmclub.to,198.51.100.0/24"
 ```
 
 #### 2. AmneziaWG 3.1 (AWG3)
@@ -116,7 +116,7 @@ awg show awg0              # View interface and peer details
 ## Logs & Troubleshooting
 
 * **Installation Logs**:
-  * AWG: `/var/log/awg-setup.log`
+  * AWG 2.0 / 1.0: `/var/log/awg2-setup.log`
   * AWG 3.1: `/var/log/awg3-setup.log`
 * **Routing Activity**:
   * AWG: `grep awg-split /var/log/messages`

@@ -5,7 +5,7 @@
 Автоматизированная установка и настройка **AmneziaWG** на **FreeBSD 13/14/15** с поддержкой нативного модуля ядра и раздельного туннелирования (Split Tunneling).
 
 В репозитории доступны две версии скрипта:
-* **[`awg-setup.sh`](awg-setup.sh)** — Универсальная версия для классического протокола AmneziaWG 2.x (обфускация `Jc`, `Jmin`, `Jmax`, `H1-H4`, `S1-S4`).
+* **[`awg2-setup.sh`](awg2-setup.sh)** — Универсальная версия для классического протокола **AmneziaWG 2.0 / 1.0 (AWG2)** (обфускация `Jc`, `Jmin`, `Jmax`, `H1-H4`, `S1-S4`).
 * **[`awg3-setup.sh`](awg3-setup.sh)** — Новая версия для протокола **AmneziaWG 3.1 (AWG3)** с ChaCha20-шифрованием заголовков (`HeaderProtectionKey`), динамическим транспортным паддингом (`ContentPaddingAddition`), защитой от поведенческого анализа (AI DPI) и контролем версий пакетов.
 
 ---
@@ -38,8 +38,8 @@
 # Для AmneziaWG 3.1:
 sudo ./awg3-setup.sh
 
-# Для стандартного AmneziaWG 2.x:
-sudo ./awg-setup.sh
+# Для AmneziaWG 2.0 / 1.0:
+sudo ./awg2-setup.sh
 ```
 
 Пошаговый мастер проведёт вас через:
@@ -55,14 +55,14 @@ sudo ./awg-setup.sh
 
 Вы также можете передать аргументы напрямую для автоматизированной настройки:
 
-#### 1. Версия AmneziaWG (Стабильная / 2.x)
+#### 1. Версия AmneziaWG 2.0 / 1.0 (AWG2)
 
 ```bash
 # Полный туннель (весь интернет через VPN):
-sudo ./awg-setup.sh -c /путь/к/vpn.conf
+sudo ./awg2-setup.sh -c /путь/к/vpn.conf
 
 # Раздельное туннелирование (только для выбранных доменов и подсетей):
-sudo ./awg-setup.sh -c /путь/к/vpn.conf -d "rutracker.org,nnmclub.to,198.51.100.0/24"
+sudo ./awg2-setup.sh -c /путь/к/vpn.conf -d "rutracker.org,nnmclub.to,198.51.100.0/24"
 ```
 
 #### 2. Новая версия AmneziaWG 3.1 (AWG3)
@@ -116,7 +116,7 @@ awg show awg0              # Подробная информация об инт
 ## Логи и диагностика
 
 * **Логи установки**: 
-  * AWG: `/var/log/awg-setup.log`
+  * AWG 2.0 / 1.0: `/var/log/awg2-setup.log`
   * AWG 3.1: `/var/log/awg3-setup.log`
 * **События раздельной маршрутизации**: 
   * AWG: `grep awg-split /var/log/messages`

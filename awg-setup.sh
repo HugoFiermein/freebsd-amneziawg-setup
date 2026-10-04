@@ -162,7 +162,9 @@ run_wizard() {
     [ -d "/home" ] && SEARCH_DIRS="${SEARCH_DIRS} /home"
 
     FOUND_CONFS=$(find ${SEARCH_DIRS} -maxdepth 3 -type f -name "*.conf" 2>/dev/null | \
-        grep -vE '/(etc|usr|var|amnezia|amnezia3)/' | sort -u | head -10)
+        grep -vE '/(etc|usr|var|amnezia|amnezia3)/' | while read -r f; do
+            [ -n "${f}" ] && (realpath "${f}" 2>/dev/null || echo "${f}")
+        done | sort -u | head -10)
 
     CHOSEN_CONF=""
     while [ -z "${CHOSEN_CONF}" ]; do

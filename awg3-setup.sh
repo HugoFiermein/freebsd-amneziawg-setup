@@ -333,11 +333,31 @@ run_wizard() {
 
 show_final_dialog() {
     [ -z "${DIALOG}" ] && return 0
-    FINAL_MSG="╔══════════════════════════════════════════════════════════╗\n"
-    FINAL_MSG="${FINAL_MSG}║   $(t "AmneziaWG 3.1 successfully configured!" "AmneziaWG 3.1 успешно настроен!")      ║\n"
-    FINAL_MSG="${FINAL_MSG}╚══════════════════════════════════════════════════════════╝\n\n"
+    if [ -n "${TMP_STATUS}" ] && [ -f "${TMP_STATUS}" ]; then
+        . "${TMP_STATUS}"
+        rm -f "${TMP_STATUS}"
+    fi
+
+    if [ -z "${VERIF_EXT_IP}" ]; then
+        VERIF_EXT_IP=$(fetch -T 3 -qo - https://api.ipify.org 2>/dev/null || true)
+    fi
+    if [ -z "${VERIF_AGO}" ]; then
+        HANDSHAKE_TS=$(awg show "${IFACE}" latest-handshakes 2>/dev/null | awk '{print $2}')
+        if [ -n "${HANDSHAKE_TS}" ] && [ "${HANDSHAKE_TS}" -gt 0 ] 2>/dev/null; then
+            VERIF_AGO=$(( $(date +%s) - HANDSHAKE_TS ))
+        fi
+    fi
+
+    FINAL_MSG="   $(t "AmneziaWG 3.1 successfully configured!" "AmneziaWG 3.1 успешно настроен!")\n"
+    FINAL_MSG="${FINAL_MSG}------------------------------------------------------------\n\n"
     FINAL_MSG="${FINAL_MSG}$(t "Protocol:" "Протокол:")   AmneziaWG 3.1 (ChaCha20 Header Protection)\n"
     FINAL_MSG="${FINAL_MSG}$(t "Interface:" "Туннель:")    ${IFACE}\n"
+    if [ -n "${DOMAINS}" ]; then
+        FINAL_MSG="${FINAL_MSG}$(t "Mode:" "Режим:")        $(t "Split Tunneling" "Раздельное туннелирование")\n"
+        FINAL_MSG="${FINAL_MSG}$(t "Targets:" "Цели:")     ${DOMAINS}\n"
+    else
+        FINAL_MSG="${FINAL_MSG}$(t "Mode:" "Режим:")        $(t "Full Tunnel (All Internet)" "Полный туннель (Весь интернет)")\n"
+    fi
     if [ -n "${VERIF_EXT_IP}" ]; then
         FINAL_MSG="${FINAL_MSG}$(t "External IP:" "Внешний IP:") ${VERIF_EXT_IP}\n"
     fi
@@ -820,6 +840,9 @@ verify() {
     # Запрашиваем внешний IP с таймаутом 5 сек (защита от зависания)
     EXT_IP=$(fetch -T 5 -qo - https://api.ipify.org 2>/dev/null || fetch -T 5 -qo - https://icanhazip.com 2>/dev/null || true)
     VERIF_EXT_IP="${EXT_IP}"
+    if [ -n "${TMP_STATUS}" ] && [ -n "${VERIF_EXT_IP}" ]; then
+        echo "VERIF_EXT_IP='${VERIF_EXT_IP}'" >> "${TMP_STATUS}"
+    fi
     if [ -n "${EXT_IP}" ]; then
         ok "$(t "External IP:" "Внешний IP:") ${EXT_IP}"
     else
@@ -833,6 +856,9 @@ verify() {
         NOW=$(date +%s)
         AGO=$((NOW - HANDSHAKE_TS))
         VERIF_AGO="${AGO}"
+        if [ -n "${TMP_STATUS}" ]; then
+            echo "VERIF_AGO='${VERIF_AGO}'" >> "${TMP_STATUS}"
+        fi
         ok "$(t "Handshake with AmneziaWG 3.1 server successful" "Handshake с сервером AmneziaWG 3.1 успешно выполнен") (${AGO} $(t "sec ago" "сек назад"))"
     fi
 }
@@ -899,6 +925,8 @@ RC_SCRIPT="/usr/local/etc/rc.d/amneziawg3"
 if [ -z "${_AWG3_LOGGED}" ]; then
     export _AWG3_LOGGED=1
     TMP_EXIT="/tmp/awg3-exit.$$"
+    export TMP_STATUS="/tmp/awg3-status.$$"
+    rm -f "${TMP_STATUS}"
     (
         trap 'echo $? > "${TMP_EXIT}"' EXIT
         main "$@"
@@ -911,6 +939,7 @@ if [ -z "${_AWG3_LOGGED}" ]; then
     if [ "${RUN_TUI}" -eq 1 ] && [ "${EXIT_STATUS}" -eq 0 ]; then
         show_final_dialog
     fi
+    rm -f "${TMP_STATUS}"
     exit "${EXIT_STATUS}"
 else
     main "$@"

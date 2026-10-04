@@ -320,15 +320,30 @@ run_wizard() {
 
 show_final_dialog() {
     [ -z "${DIALOG}" ] && return 0
-    FINAL_MSG="╔══════════════════════════════════════════════════════════╗\n"
-    FINAL_MSG="${FINAL_MSG}║   $(t "AmneziaWG successfully configured!" "AmneziaWG успешно настроен!")          ║\n"
-    FINAL_MSG="${FINAL_MSG}╚══════════════════════════════════════════════════════════╝\n\n"
+    if [ -n "${TMP_STATUS}" ] && [ -f "${TMP_STATUS}" ]; then
+        . "${TMP_STATUS}"
+        rm -f "${TMP_STATUS}"
+    fi
+
+    if [ -z "${VERIF_EXT_IP}" ]; then
+        VERIF_EXT_IP=$(fetch -T 3 -qo - https://api.ipify.org 2>/dev/null || true)
+    fi
+
+    FINAL_MSG="   $(t "AmneziaWG successfully configured!" "AmneziaWG успешно настроен!")\n"
+    FINAL_MSG="${FINAL_MSG}------------------------------------------------------------\n\n"
     FINAL_MSG="${FINAL_MSG}$(t "Protocol:" "Протокол:")   AmneziaWG 2.x\n"
     FINAL_MSG="${FINAL_MSG}$(t "Interface:" "Туннель:")    ${IFACE}\n"
-    if [ -n "${VERIF_EXT_IP}" ]; then
-        FINAL_MSG="${FINAL_MSG}$(t "External IP:" "Внешний IP:") ${VERIF_EXT_IP}\n"
+    if [ -n "${DOMAINS}" ]; then
+        FINAL_MSG="${FINAL_MSG}$(t "Mode:" "Режим:")        $(t "Split Tunneling" "Раздельное туннелирование")\n"
+        FINAL_MSG="${FINAL_MSG}$(t "Targets:" "Цели:")     ${DOMAINS}\n"
+    else
+        FINAL_MSG="${FINAL_MSG}$(t "Mode:" "Режим:")        $(t "Full Tunnel (All Internet)" "Полный туннель (Весь интернет)")\n"
     fi
-    FINAL_MSG="${FINAL_MSG}\n"
+    if [ -n "${VERIF_EXT_IP}" ]; then
+        FINAL_MSG="${FINAL_MSG}$(t "External IP:" "Внешний IP:") ${VERIF_EXT_IP}\n\n"
+    else
+        FINAL_MSG="${FINAL_MSG}\n"
+    fi
     FINAL_MSG="${FINAL_MSG}$(t "Service Management:" "Управление сервисом:")\n"
     FINAL_MSG="${FINAL_MSG}  service amneziawg status\n"
     FINAL_MSG="${FINAL_MSG}  service amneziawg stop\n"
@@ -672,6 +687,9 @@ verify() {
     fi
     EXT_IP=$(fetch -T 5 -qo - https://api.ipify.org 2>/dev/null || fetch -T 5 -qo - https://icanhazip.com 2>/dev/null || true)
     VERIF_EXT_IP="${EXT_IP}"
+    if [ -n "${TMP_STATUS}" ] && [ -n "${VERIF_EXT_IP}" ]; then
+        echo "VERIF_EXT_IP='${VERIF_EXT_IP}'" >> "${TMP_STATUS}"
+    fi
     if [ -n "${EXT_IP}" ]; then
         ok "$(t "External IP:" "Внешний IP:") ${EXT_IP}"
     fi
@@ -736,6 +754,8 @@ RC_SCRIPT="/usr/local/etc/rc.d/amneziawg"
 if [ -z "${_AWG_LOGGED}" ]; then
     export _AWG_LOGGED=1
     TMP_EXIT="/tmp/awg-exit.$$"
+    export TMP_STATUS="/tmp/awg-status.$$"
+    rm -f "${TMP_STATUS}"
     (
         trap 'echo $? > "${TMP_EXIT}"' EXIT
         main "$@"
@@ -748,6 +768,7 @@ if [ -z "${_AWG_LOGGED}" ]; then
     if [ "${RUN_TUI}" -eq 1 ] && [ "${EXIT_STATUS}" -eq 0 ]; then
         show_final_dialog
     fi
+    rm -f "${TMP_STATUS}"
     exit "${EXIT_STATUS}"
 else
     main "$@"

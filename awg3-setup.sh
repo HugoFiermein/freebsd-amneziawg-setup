@@ -227,11 +227,14 @@ build_and_install_awg3() {
     git -C "${TOOLS_BUILD_DIR}" checkout awg31
 
     # Патчим awg-quick для FreeBSD:
-    # Заставляем awg-quick создавать нативный ядерный интерфейс (ifconfig wg create name $INTERFACE),
-    # а не пытаться вызывать несуществующий userspace-демон amneziawg-go
-    info "Патчим awg-quick для работы с нативным модулем ядра FreeBSD if_wg.ko..."
+    # 1. Заставляем awg-quick вызывать скомпилированный awg 3.1, а не системный /usr/bin/wg
+    # 2. Заставляем создавать нативный ядерный интерфейс if_wg.ko, а не amneziawg-go
+    info "Патчим awg-quick для работы с нативным модулем ядра if_wg.ko и утилитой awg 3.1..."
     sed -i '' 's/cmd="amneziawg-go "\$INTERFACE"";/:;/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
     sed -i '' 's/\${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}/ifconfig wg create name/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+    sed -i '' 's/\bcmd wg setconf\b/cmd awg setconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+    sed -i '' 's/\bcmd wg showconf\b/cmd awg showconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
+    sed -i '' 's/\bwg show\b/awg show/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
 
     gmake -C "${TOOLS_BUILD_DIR}/src" clean
     gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local || die "Ошибка компиляции amneziawg-tools"
@@ -241,6 +244,12 @@ build_and_install_awg3() {
     # Дополнительная страховка: патчим установленный /usr/local/bin/awg-quick
     sed -i '' 's/cmd="amneziawg-go "\$INTERFACE"";/:;/' /usr/local/bin/awg-quick 2>/dev/null || true
     sed -i '' 's/\${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}/ifconfig wg create name/g' /usr/local/bin/awg-quick 2>/dev/null || true
+    sed -i '' 's/\bcmd wg setconf\b/cmd awg setconf/g' /usr/local/bin/awg-quick 2>/dev/null || true
+    sed -i '' 's/\bcmd wg showconf\b/cmd awg showconf/g' /usr/local/bin/awg-quick 2>/dev/null || true
+    sed -i '' 's/\bwg show\b/awg show/g' /usr/local/bin/awg-quick 2>/dev/null || true
+
+    # Создаём симлинк /usr/local/bin/wg -> /usr/local/bin/awg
+    ln -sf /usr/local/bin/awg /usr/local/bin/wg
 
     # Проверка, что awg теперь знает HeaderProtectionKey
     if strings /usr/local/bin/awg 2>/dev/null | grep -qi "header-protection-key"; then
@@ -280,6 +289,14 @@ prepare_config() {
 
     cp "${CONF_FILE}" "${CONF_PATH}"
     chmod 600 "${CONF_PATH}"
+
+    # Безопасный MTU для AWG 3.1 (защита от фрагментации из-за паддинга и заголовков ChaCha20)
+    if ! grep -qi "^MTU" "${CONF_PATH}"; then
+        sed -i '' "/^\[[Ii][Nn][Tt][Ee][Rr][Ff][Aa][Cc][Ee]\]/a\\
+MTU = 1280
+" "${CONF_PATH}"
+        info "Автоматически установлен безопасный MTU = 1280 для протокола AWG 3.1"
+    fi
 
     # Настройка раздельного туннелирования при указании доменов/сетей (-d)
     if [ -n "${DOMAINS}" ]; then

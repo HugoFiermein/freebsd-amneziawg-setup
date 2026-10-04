@@ -327,6 +327,8 @@ create_rc_script() {
 
 . /etc/rc.subr
 
+export PATH="/usr/local/bin:/usr/local/sbin:\$PATH"
+
 name="amneziawg"
 rcvar="amneziawg_enable"
 desc="AmneziaWG VPN"
@@ -340,12 +342,12 @@ status_cmd="amneziawg_status"
 
 amneziawg_start() {
     kldstat | grep -qE "if_amn|if_wg" || kldload if_amn
-    awg-quick up "\${amneziawg_conf}"
+    /usr/local/bin/awg-quick up "\${amneziawg_conf}"
 }
-amneziawg_stop()   { awg-quick down "\${amneziawg_conf}" 2>/dev/null || true; }
+amneziawg_stop()   { /usr/local/bin/awg-quick down "\${amneziawg_conf}" 2>/dev/null || true; }
 amneziawg_status() {
     ifconfig "${IFACE}" > /dev/null 2>&1 \
-        && awg show "${IFACE}" \
+        && /usr/local/bin/awg show "${IFACE}" \
         || { echo "Остановлен"; return 1; }
 }
 

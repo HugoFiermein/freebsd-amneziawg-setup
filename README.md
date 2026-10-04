@@ -1,70 +1,100 @@
 **[🇷🇺 На русском языке](README.ru.md)**
 
-# AmneziaWG FreeBSD Setup & Split Tunneling
+# AmneziaWG FreeBSD Setup + Split Tunneling
 
-This repository provides an automated solution for installing and configuring **AmneziaWG** on **FreeBSD 14/15**. It builds the kernel module from source and enables high-performance VPN connectivity with optional domain-based routing.
+Automated installer and configuration tool for **AmneziaWG** on **FreeBSD 13/14/15** with native kernel module performance and optional domain/subnet split tunneling.
+
+This repository provides two specialized scripts:
+* **[`awg-setup.sh`](awg-setup.sh)** — Universal installer for standard AmneziaWG 2.x protocol (`Jc`, `Jmin`, `Jmax`, `H1-H4`, `S1-S4`).
+* **[`awg3-setup.sh`](awg3-setup.sh)** — Installer for the newer **AmneziaWG 3.1 (AWG3)** protocol, featuring ChaCha20 packet header encryption (`HeaderProtectionKey`), dynamic transport padding (`ContentPaddingAddition`), random trailers, and protection against AI/behavioral DPI analysis.
 
 ---
 
 ## Features
 
-* **Native Kernel Performance**: Clones and compiles the AmneziaWG kernel module (`if_wg.ko`) for your specific FreeBSD version.
-* **Intelligent Patching**: Modifies `awg-quick` to work natively with FreeBSD's `ifconfig`, removing the need for `amneziawg-go`.
-* **Optional Split Tunneling**: Route traffic for specific domains through the VPN while keeping everything else on your local ISP.
-* **Full Auto-Start**: Registers a standard FreeBSD service (`/usr/local/etc/rc.d/amneziawg`) that starts automatically upon reboot.
-* **Clean Uninstallation**: Includes a dedicated uninstall flag (`-u`) to safely remove all binaries and modules.
+* **Native Kernel Performance**: Powered by the FreeBSD kernel driver `if_amn.ko` (from `net/amnezia-kmod`).
+* **Package-Based Installation**: Automatically installs precompiled binaries via `pkg` (with ports tree fallback when needed).
+* **Robust Split Tunneling**: Route specific domains and IP/CIDR subnets via `Table = off` without packet drops during CDN/Cloudflare IP rotations.
+* **Full Auto-Start (rc.d)**: Automatically restores the VPN tunnel on system boot via dedicated FreeBSD services (`amneziawg` / `amneziawg3`).
+* **Clean Uninstallation (`-u`)**: Safely tears down interfaces, services, and configuration without touching unrelated boot loader entries.
 
 ---
 
-## Prerequisites
+## System Requirements
 
-1. **OS**: FreeBSD 14.0-RELEASE or newer (supports FreeBSD 15-CURRENT).
+1. **OS**: FreeBSD 13.0, 14.x, or 15-CURRENT.
 2. **Privileges**: Must be executed as **root** (or via `sudo`).
-3. **Kernel Sources**: Required to compile the module. Install via:
-   `freebsd-update fetch install`
-4. **Configuration**: A valid `.conf` file from an AmneziaWG provider is required.
+3. **Configuration**: A valid AmneziaWG `.conf` file from your VPN provider or server.
 
 ---
 
 ## Installation & Usage
 
-### 1. Basic Installation
-To install AmneziaWG with default settings, simply provide your configuration file:
-`sudo ./awg-setup.sh -c /path/to/vpn.conf`
+### 1. AmneziaWG (Standard / 2.x)
 
-### 2. Advanced Usage (Split Tunneling)
-If you want the VPN to handle only specific domains, use the `-d` option:
-`sudo ./awg-setup.sh -c /path/to/vpn.conf -d "rutracker.org,nnmclub.to"`
+```bash
+# Full tunnel (route all internet traffic through VPN):
+sudo ./awg-setup.sh -c /path/to/vpn.conf
 
-### All Options
-* `-c FILE`: **(Required)** Path to your AmneziaWG `.conf` file.
-* `-d DOMAINS`: Optional comma-separated list of domains to tunnel. (Default: `rutracker.org`).
-* `-i IFACE`: Name of the tunnel interface. (Default: `awg0`).
-* `-u`: Uninstall and clean the system.
+# Split tunneling (only route specified domains and subnets through VPN):
+sudo ./awg-setup.sh -c /path/to/vpn.conf -d "rutracker.org,nnmclub.to,198.51.100.0/24"
+```
+
+### 2. AmneziaWG 3.1 (AWG3)
+
+For configurations containing `HeaderProtectionKey`, `ContentPaddingAddition`, and `RandomTrailers`:
+
+```bash
+# Full tunnel with AWG 3.1:
+sudo ./awg3-setup.sh -c /path/to/awg3.conf
+
+# Split tunneling with AWG 3.1:
+sudo ./awg3-setup.sh -c /path/to/awg3.conf -d "rutracker.org,nnmclub.to"
+```
+
+---
+
+## Command Line Options
+
+| Option | Description |
+| :--- | :--- |
+| `-c FILE` | **(Required)** Path to your AmneziaWG `.conf` file. |
+| `-d TARGETS` | Optional comma-separated list of domains or IP/CIDR subnets to tunnel. *(Default: all traffic routed through VPN)*. |
+| `-i IFACE` | Network interface name. *(Default: `awg0`)*. |
+| `-u` | Completely uninstall service, configurations, and modules. |
+| `-h` | Display usage help. |
 
 ---
 
 ## Service Management
 
-The tunnel stays active after reboots thanks to the integrated RC service.
+Tunnels persist across reboots thanks to integration with FreeBSD's `rc.d` subsystem.
 
-| Action | Command |
-| :--- | :--- |
-| **Start VPN** | service amneziawg start |
-| **Stop VPN** | service amneziawg stop |
-| **Status** | service amneziawg status |
-| **Interface Info** | awg show awg0 |
+### Classic Service (`amneziawg`):
+```bash
+service amneziawg start    # Start VPN tunnel
+service amneziawg stop     # Stop VPN tunnel
+service amneziawg status   # Check status
+awg show awg0              # View interface and peer details
+```
+
+### AWG 3.1 Service (`amneziawg3`):
+```bash
+service amneziawg3 start   # Start AWG 3.1 VPN tunnel
+service amneziawg3 stop    # Stop AWG 3.1 VPN tunnel
+service amneziawg3 status  # Check status
+awg show awg0              # View interface and peer details
+```
 
 ---
 
-## Troubleshooting & Logs
+## Logs & Troubleshooting
 
-* **Installation Logs**: Found at `/var/log/awg-setup.log`.
-* **Routing Activity**: View split tunneling events:
-  `grep awg-split /var/log/messages`
-* **Kernel Mismatch**: Ensure `/usr/src` matches your kernel version (`uname -r`).
-
----
-
-## Credits
-Utilizes kernel module forks and tools by [vgrebenschikov](https://github.com/vgrebenschikov) and [amnezia-vpn](https://github.com/amnezia-vpn).
+* **Installation Logs**:
+  * AWG: `/var/log/awg-setup.log`
+  * AWG 3.1: `/var/log/awg3-setup.log`
+* **Routing Activity**:
+  * AWG: `grep awg-split /var/log/messages`
+  * AWG 3.1: `grep awg3-split /var/log/messages`
+* **Check Active Interface Routes**:
+  `netstat -rn | grep awg0`

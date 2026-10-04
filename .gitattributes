@@ -1,0 +1,3 @@
+# Ensure shell scripts always have Unix line endings (LF) for FreeBSD
+*.sh text eol=lf
+*.md text

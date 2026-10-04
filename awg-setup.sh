@@ -27,32 +27,77 @@ UNINSTALL=0
 AWG_DIR="/usr/local/etc/amnezia"
 LOG_FILE="/var/log/awg-setup.log"
 
-usage() {
-    cat <<EOF
-Использование: $0 -c <conf_file> [опции]
+APP_LANG="en"
+if [ -n "$LANG" ] && echo "$LANG" | grep -qi "^ru"; then
+    APP_LANG="ru"
+fi
+CLI_LANG=""
+RUN_TUI=0
+BACKTITLE="FreeBSD AmneziaWG Installer"
 
-  -c FILE   Готовый .conf файл AmneziaWG (обязательно)
+t() {
+    if [ "${APP_LANG}" = "ru" ]; then
+        printf "%s" "$2"
+    else
+        printf "%s" "$1"
+    fi
+}
+
+usage() {
+    if [ "${APP_LANG}" = "ru" ]; then
+        cat <<EOF
+Использование: $0 [опции]
+
+Режимы запуска:
+  sudo $0                  Интерактивный TUI-мастер FreeBSD (рекомендуется)
+  sudo $0 -c <файл.conf>   Консольная установка с указанным конфигом
+
+Опции:
+  -c FILE   Готовый .conf файл AmneziaWG
   -d DOMAIN Домены или IP/CIDR через запятую для раздельного туннелирования
             (по умолчанию: не задано — весь трафик идёт через VPN)
-  -i IFACE  Имя интерфейса (default: awg0)
+  -i IFACE  Имя интерфейса (по умолчанию: awg0)
+  -l LANG   Язык интерфейса: en или ru
   -u        Удалить всё
   -h        Эта справка
 
 Примеры:
-  # Полный туннель (весь трафик через VPN):
+  sudo $0
   sudo $0 -c /home/user/vpn.conf
-
-  # Раздельное туннелирование (трафик только для выбранных доменов и подсетей):
   sudo $0 -c /home/user/vpn.conf -d "rutracker.org,nnmclub.to"
 EOF
+    else
+        cat <<EOF
+Usage: $0 [options]
+
+Execution modes:
+  sudo $0                  Interactive FreeBSD TUI Wizard (recommended)
+  sudo $0 -c <file.conf>   Direct CLI setup with specified configuration
+
+Options:
+  -c FILE   AmneziaWG .conf file
+  -d DOMAIN Comma-separated domains or IP/CIDR subnets for split tunneling
+            (default: all internet traffic routed through VPN)
+  -i IFACE  Network interface name (default: awg0)
+  -l LANG   Interface language: en or ru
+  -u        Completely uninstall AmneziaWG
+  -h        Display this help message
+
+Examples:
+  sudo $0
+  sudo $0 -c /home/user/vpn.conf
+  sudo $0 -c /home/user/vpn.conf -d "rutracker.org,nnmclub.to"
+EOF
+    fi
     exit 0
 }
 
-while getopts "c:d:i:uh" opt; do
+while getopts "c:d:i:l:uh" opt; do
     case "$opt" in
         c) CONF_FILE="$OPTARG" ;;
         d) DOMAINS="$OPTARG"   ;;
         i) IFACE="$OPTARG"     ;;
+        l) APP_LANG="$OPTARG"; CLI_LANG="$OPTARG" ;;
         u) UNINSTALL=1         ;;
         h) usage               ;;
         *) usage               ;;
@@ -65,7 +110,231 @@ RC_SCRIPT="/usr/local/etc/rc.d/amneziawg"
 
 # =============================================================================
 check_root() {
-    [ "$(id -u)" -eq 0 ] || die "Запустите от root: sudo $0 $*"
+    [ "$(id -u)" -eq 0 ] || die "$(t "Run as root: sudo $0 $*" "Запустите от root: sudo $0 $*")"
+}
+
+# =============================================================================
+# TUI Wizard (FreeBSD Native bsddialog / dialog)
+# =============================================================================
+init_dialog() {
+    if command -v bsddialog >/dev/null 2>&1; then
+        DIALOG="bsddialog"
+    elif command -v dialog >/dev/null 2>&1; then
+        DIALOG="dialog"
+    else
+        DIALOG=""
+    fi
+}
+
+run_wizard() {
+    init_dialog
+    if [ -z "${DIALOG}" ]; then
+        warn "bsddialog / dialog not found in system. Please run in CLI mode with -c <conf_file>."
+        exit 1
+    fi
+
+    TMP_DIALOG=$(mktemp -t awg_dialog.XXXXXX 2>/dev/null || mktemp /tmp/awg_dialog.XXXXXX)
+    trap 'rm -f "${TMP_DIALOG}"' EXIT INT TERM
+
+    # --- Step 1: Language Selection ---
+    if [ -z "${CLI_LANG}" ]; then
+        "${DIALOG}" --backtitle "${BACKTITLE}" \
+            --title " Language / Язык " \
+            --menu "Select interface language / Выберите язык интерфейса:" \
+            12 60 2 \
+            "1" "English (Default)" \
+            "2" "Русский" 2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+        LANG_RES=$(cat "${TMP_DIALOG}")
+        if [ "${LANG_RES}" = "2" ]; then
+            APP_LANG="ru"
+        else
+            APP_LANG="en"
+        fi
+    fi
+
+    # --- Step 2: Configuration File Discovery ---
+    SEARCH_DIRS="."
+    if [ -n "${SUDO_USER}" ] && [ "${SUDO_USER}" != "root" ]; then
+        U_HOME=$(getent passwd "${SUDO_USER}" 2>/dev/null | cut -d: -f6)
+        [ -n "${U_HOME}" ] && [ -d "${U_HOME}" ] && SEARCH_DIRS="${SEARCH_DIRS} ${U_HOME}"
+    fi
+    [ -d "/home" ] && SEARCH_DIRS="${SEARCH_DIRS} /home"
+
+    FOUND_CONFS=$(find ${SEARCH_DIRS} -maxdepth 3 -type f -name "*.conf" 2>/dev/null | \
+        grep -vE '/(etc|usr|var|amnezia|amnezia3)/' | sort -u | head -10)
+
+    CHOSEN_CONF=""
+    while [ -z "${CHOSEN_CONF}" ]; do
+        if [ -n "${FOUND_CONFS}" ]; then
+            set -- --backtitle "${BACKTITLE}" \
+                   --title " $(t "Configuration File (.conf)" "Файл конфигурации (.conf)") " \
+                   --menu "$(t "Found configuration files in system:\nSelect a file or specify custom path:" "Найдены файлы конфигурации в системе:\nВыберите файл или укажите путь вручную:")" \
+                   16 75 6
+            INDEX=1
+            for f in ${FOUND_CONFS}; do
+                set -- "$@" "${INDEX}" "${f}"
+                INDEX=$((INDEX + 1))
+            done
+            set -- "$@" "C" "$(t "Enter path manually..." "Ввести путь вручную...")"
+
+            "${DIALOG}" "$@" 2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+            SEL=$(cat "${TMP_DIALOG}")
+            if [ "${SEL}" != "C" ]; then
+                CUR_IDX=1
+                for f in ${FOUND_CONFS}; do
+                    if [ "${CUR_IDX}" -eq "${SEL}" ] 2>/dev/null; then
+                        CHOSEN_CONF="${f}"
+                        break
+                    fi
+                    CUR_IDX=$((CUR_IDX + 1))
+                done
+            fi
+        fi
+
+        if [ -z "${CHOSEN_CONF}" ]; then
+            DEF_INPUT="/home/${SUDO_USER:-alsina}/vpn.conf"
+            [ -f "${DEF_INPUT}" ] || DEF_INPUT=""
+
+            "${DIALOG}" --backtitle "${BACKTITLE}" \
+                --title " $(t "Configuration File (.conf)" "Файл конфигурации (.conf)") " \
+                --inputbox "$(t "Enter full path to AmneziaWG .conf file:" "Введите полный путь к .conf файлу AmneziaWG:")" \
+                11 70 "${DEF_INPUT}" 2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+            ENTERED_PATH=$(cat "${TMP_DIALOG}" | tr -d '\r' | tr -d '\n')
+            if [ -f "${ENTERED_PATH}" ]; then
+                CHOSEN_CONF="${ENTERED_PATH}"
+            else
+                "${DIALOG}" --backtitle "${BACKTITLE}" \
+                    --title " $(t "Error" "Ошибка") " \
+                    --msgbox "$(t "File not found: " "Файл не найден: ")${ENTERED_PATH}\n$(t "Please check path and try again." "Пожалуйста, проверьте путь и повторите ввод.")" \
+                    9 65
+            fi
+        fi
+    done
+
+    CONF_FILE="${CHOSEN_CONF}"
+
+    # --- Step 3: Tunnel Routing Mode ---
+    "${DIALOG}" --backtitle "${BACKTITLE}" \
+        --title " $(t "Routing Mode" "Режим маршрутизации") " \
+        --menu "$(t "Choose VPN traffic routing mode:" "Выберите режим маршрутизации трафика:")" \
+        13 70 2 \
+        "1" "$(t "Full Tunnel - Route ALL internet traffic via VPN" "Полный туннель - Весь интернет через VPN")" \
+        "2" "$(t "Split Tunneling - Route only selected domains / IPs" "Раздельный туннель - Только выбранные домены / IP")" \
+        2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+    MODE_CHOICE=$(cat "${TMP_DIALOG}")
+
+    # --- Step 4: Domain Manager (if Split Tunneling) ---
+    DOMAINS=""
+    if [ "${MODE_CHOICE}" = "2" ]; then
+        DOMAIN_LIST=""
+        while true; do
+            if [ -z "${DOMAIN_LIST}" ]; then
+                DOM_DISPLAY="$(t "(No domains added yet)" "(Список пуст)")"
+            else
+                DOM_DISPLAY=$(echo "${DOMAIN_LIST}" | tr ',' '\n' | sed 's/^/  • /')
+            fi
+
+            MENU_MSG="$(t "Current split tunneling targets:" "Текущие цели раздельного туннелирования:")\n\n${DOM_DISPLAY}\n"
+
+            "${DIALOG}" --backtitle "${BACKTITLE}" \
+                --title " $(t "Split Tunneling Manager" "Управление раздельным туннелированием") " \
+                --menu "${MENU_MSG}" \
+                18 72 4 \
+                "ADD"   "$(t "+ Add domain or IP/CIDR" "+ Добавить домен или IP/CIDR")" \
+                "DEL"   "$(t "- Remove last added item" "- Удалить последний добавленный элемент")" \
+                "CLEAR" "$(t "x Clear all items" "x Очистить весь список")" \
+                "DONE"  "$(t "-> Proceed with this list" "-> Завершить и продолжить установку")" \
+                2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+            ACT=$(cat "${TMP_DIALOG}")
+            case "${ACT}" in
+                ADD)
+                    "${DIALOG}" --backtitle "${BACKTITLE}" \
+                        --title " $(t "Add Domain / Subnet" "Добавить домен / подсеть") " \
+                        --inputbox "$(t "Enter domain name or IP/CIDR:\n(e.g.: rutracker.org, nnmclub.to, 198.51.100.0/24)" "Введите домен или IP/CIDR:\n(например: rutracker.org, nnmclub.to, 198.51.100.0/24)")" \
+                        12 68 2>"${TMP_DIALOG}" || continue
+
+                    RAW_ENTRY=$(cat "${TMP_DIALOG}" | tr -d ' ' | tr -d '\t' | tr -d '\r' | tr -d '\n')
+                    if [ -n "${RAW_ENTRY}" ]; then
+                        if [ -z "${DOMAIN_LIST}" ]; then
+                            DOMAIN_LIST="${RAW_ENTRY}"
+                        else
+                            DOMAIN_LIST="${DOMAIN_LIST},${RAW_ENTRY}"
+                        fi
+                    fi
+                    ;;
+                DEL)
+                    if [ -n "${DOMAIN_LIST}" ]; then
+                        DOMAIN_LIST=$(echo "${DOMAIN_LIST}" | sed 's/,[^,]*$//; s/^[^,]*$//')
+                    fi
+                    ;;
+                CLEAR)
+                    DOMAIN_LIST=""
+                    ;;
+                DONE)
+                    if [ -z "${DOMAIN_LIST}" ]; then
+                        "${DIALOG}" --backtitle "${BACKTITLE}" \
+                            --title " $(t "Empty Target List" "Список целей пуст") " \
+                            --yesno "$(t "Domain list is empty. Switch to Full Tunnel mode?" "Список доменов пуст. Переключиться в режим полного туннеля?")" \
+                            8 65
+                        if [ $? -eq 0 ]; then
+                            DOMAINS=""
+                            break
+                        else
+                            continue
+                        fi
+                    else
+                        DOMAINS="${DOMAIN_LIST}"
+                        break
+                    fi
+                    ;;
+            esac
+        done
+    fi
+
+    # --- Step 5: Summary and Confirmation ---
+    if [ -n "${DOMAINS}" ]; then
+        SUMMARY_MODE="$(t "Split Tunneling" "Раздельное туннелирование")\n    $(t "Targets:" "Цели:") ${DOMAINS}"
+    else
+        SUMMARY_MODE="$(t "Full Tunnel (All internet traffic routed via VPN)" "Полный туннель (Весь интернет через VPN)")"
+    fi
+
+    SUM_TEXT="$(t "Ready to install AmneziaWG with settings:" "Готово к установке AmneziaWG со следующими параметрами:")\n\n"
+    SUM_TEXT="${SUM_TEXT}  • $(t "Config file:" "Конфигурация:")   ${CONF_FILE}\n"
+    SUM_TEXT="${SUM_TEXT}  • $(t "Interface:" "Интерфейс:")     ${IFACE}\n"
+    SUM_TEXT="${SUM_TEXT}  • $(t "Routing Mode:" "Маршрутизация:") ${SUMMARY_MODE}\n\n"
+    SUM_TEXT="${SUM_TEXT}$(t "Proceed with automated installation?" "Запустить автоматическую настройку?")"
+
+    "${DIALOG}" --backtitle "${BACKTITLE}" \
+        --title " $(t "Installation Summary" "Сводка параметров установки") " \
+        --yesno "${SUM_TEXT}" 16 75 || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+    rm -f "${TMP_DIALOG}"
+}
+
+show_final_dialog() {
+    [ -z "${DIALOG}" ] && return 0
+    FINAL_MSG="╔══════════════════════════════════════════════════════════╗\n"
+    FINAL_MSG="${FINAL_MSG}║   $(t "AmneziaWG successfully configured!" "AmneziaWG успешно настроен!")          ║\n"
+    FINAL_MSG="${FINAL_MSG}╚══════════════════════════════════════════════════════════╝\n\n"
+    FINAL_MSG="${FINAL_MSG}$(t "Protocol:" "Протокол:")   AmneziaWG 2.x\n"
+    FINAL_MSG="${FINAL_MSG}$(t "Interface:" "Туннель:")    ${IFACE}\n"
+    if [ -n "${VERIF_EXT_IP}" ]; then
+        FINAL_MSG="${FINAL_MSG}$(t "External IP:" "Внешний IP:") ${VERIF_EXT_IP}\n"
+    fi
+    FINAL_MSG="${FINAL_MSG}\n"
+    FINAL_MSG="${FINAL_MSG}$(t "Service Management:" "Управление сервисом:")\n"
+    FINAL_MSG="${FINAL_MSG}  service amneziawg status\n"
+    FINAL_MSG="${FINAL_MSG}  service amneziawg stop\n"
+    FINAL_MSG="${FINAL_MSG}  service amneziawg start\n"
+
+    "${DIALOG}" --backtitle "${BACKTITLE}" \
+        --title " $(t "Setup Complete" "Установка завершена") " \
+        --msgbox "${FINAL_MSG}" 18 68 </dev/tty >/dev/tty 2>&1 || true
 }
 
 # =============================================================================
@@ -382,7 +651,7 @@ start_tunnel() {
 
 # =============================================================================
 verify() {
-    header "Проверка маршрутизации"
+    header "$(t "Verification" "Проверка маршрутизации")"
     if [ -n "${DOMAINS}" ]; then
         for domain in $(echo "$DOMAINS" | tr ',' ' '); do
             TARGET=$(host -t A "$domain" 2>/dev/null | awk '/has address/{print $4; exit}')
@@ -391,41 +660,45 @@ verify() {
                 if [ "$ROUTE_IFACE" = "${IFACE}" ]; then
                     ok "${domain} (${TARGET}) -> ${IFACE} ✓"
                 else
-                    warn "${domain} (${TARGET}) идёт через ${ROUTE_IFACE}, не через ${IFACE}"
+                    warn "${domain} (${TARGET}) $(t "goes via" "идёт через") ${ROUTE_IFACE}, $(t "not via" "не через") ${IFACE}"
                 fi
             fi
         done
-        info "Внешний IP (должен быть IP вашего провайдера, не VPN):"
+        info "$(t "External IP (should be your regular ISP IP):" "Внешний IP (должен быть IP вашего провайдера, не VPN):")"
     else
-        info "Внешний IP (должен быть IP VPN сервера):"
+        info "$(t "External IP (should be AmneziaWG VPN server IP):" "Внешний IP (должен быть IP VPN сервера):")"
     fi
-    fetch -qo - https://api.ipify.org 2>/dev/null && echo "" || true
+    EXT_IP=$(fetch -T 5 -qo - https://api.ipify.org 2>/dev/null || fetch -T 5 -qo - https://icanhazip.com 2>/dev/null || true)
+    VERIF_EXT_IP="${EXT_IP}"
+    if [ -n "${EXT_IP}" ]; then
+        ok "$(t "External IP:" "Внешний IP:") ${EXT_IP}"
+    fi
 }
 
 # =============================================================================
 print_summary() {
     printf "\n${BOLD}${GREEN}"
     printf "╔══════════════════════════════════════════════════════════╗\n"
-    printf "║           AmneziaWG успешно настроен!                    ║\n"
+    printf "║   %s   ║\n" "$(t "       AmneziaWG successfully configured!         " "           AmneziaWG успешно настроен!            ")"
     printf "╚══════════════════════════════════════════════════════════╝\n"
     printf "${RESET}\n"
-    printf "${BOLD}Туннель:${RESET}     %s\n"  "${IFACE}"
-    [ -n "${DOMAINS}" ] && printf "${BOLD}Домены/IP:${RESET}   %s\n" "${DOMAINS}" || printf "${BOLD}Режим:${RESET}       Весь трафик через VPN\n"
-    printf "${BOLD}Конфиг:${RESET}      %s\n"  "${CONF_PATH}"
-    printf "${BOLD}Лог:${RESET}         %s\n\n" "${LOG_FILE}"
-    printf "${BOLD}Управление:${RESET}\n"
-    printf "  Статус:   ${CYAN}service amneziawg status${RESET}\n"
-    printf "  Стоп:     ${CYAN}service amneziawg stop${RESET}\n"
-    printf "  Старт:    ${CYAN}service amneziawg start${RESET}\n"
-    printf "  Маршруты: ${CYAN}netstat -rn | grep %s${RESET}\n" "${IFACE}"
-    printf "  Удалить:  ${CYAN}sudo $0 -u${RESET}\n\n"
+    printf "${BOLD}%s:${RESET}     %s\n" "$(t "Interface" "Туннель")" "${IFACE}"
+    [ -n "${DOMAINS}" ] && printf "${BOLD}%s:${RESET}   %s\n" "$(t "Domains/IP" "Домены/IP")" "${DOMAINS}" || printf "${BOLD}%s:${RESET}       %s\n" "$(t "Mode" "Режим")" "$(t "All traffic via VPN" "Весь трафик через VPN")"
+    printf "${BOLD}%s:${RESET}      %s\n" "$(t "Config" "Конфиг")" "${CONF_PATH}"
+    printf "${BOLD}%s:${RESET}         %s\n\n" "$(t "Log" "Лог")" "${LOG_FILE}"
+    printf "${BOLD}%s:${RESET}\n" "$(t "Service Management" "Управление")"
+    printf "  %s:   ${CYAN}service amneziawg status${RESET}\n" "$(t "Status" "Статус")"
+    printf "  %s:     ${CYAN}service amneziawg stop${RESET}\n" "$(t "Stop" "Стоп")"
+    printf "  %s:    ${CYAN}service amneziawg start${RESET}\n" "$(t "Start" "Старт")"
+    printf "  %s: ${CYAN}netstat -rn | grep %s${RESET}\n" "$(t "Routes" "Маршруты")" "${IFACE}"
+    printf "  %s:  ${CYAN}sudo $0 -u${RESET}\n\n" "$(t "Uninstall" "Удалить")"
 }
 
 # =============================================================================
 main() {
     printf "${BOLD}${CYAN}"
     printf "╔══════════════════════════════════════════════════════════╗\n"
-    printf "║    AmneziaWG Setup + Split Tunneling для FreeBSD         ║\n"
+    printf "║    AmneziaWG Setup + Split Tunneling (FreeBSD)           ║\n"
     printf "╚══════════════════════════════════════════════════════════╝\n"
     printf "${RESET}\n"
 
@@ -447,8 +720,17 @@ main() {
 }
 
 # =============================================================================
-# Запуск с логированием (POSIX /bin/sh совместимый захват кода возврата)
+# Точка входа: интерактивный мастер (если запущен без -c) и логирование
 # =============================================================================
+if [ "${UNINSTALL}" -eq 0 ] && [ -z "${CONF_FILE}" ] && [ -t 0 ]; then
+    RUN_TUI=1
+    run_wizard
+fi
+
+CONF_PATH="${AWG_DIR}/${IFACE}.conf"
+ROUTE_SCRIPT="${AWG_DIR}/split-tunnel.sh"
+RC_SCRIPT="/usr/local/etc/rc.d/amneziawg"
+
 if [ -z "${_AWG_LOGGED}" ]; then
     export _AWG_LOGGED=1
     TMP_EXIT="/tmp/awg-exit.$$"
@@ -460,6 +742,9 @@ if [ -z "${_AWG_LOGGED}" ]; then
     if [ -f "${TMP_EXIT}" ]; then
         EXIT_STATUS=$(cat "${TMP_EXIT}")
         rm -f "${TMP_EXIT}"
+    fi
+    if [ "${RUN_TUI}" -eq 1 ] && [ "${EXIT_STATUS}" -eq 0 ]; then
+        show_final_dialog
     fi
     exit "${EXIT_STATUS}"
 else

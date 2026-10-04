@@ -32,7 +32,7 @@ warn()   { printf "${YELLOW}[WARN]${RESET}  %s\n" "$*"; }
 die()    { printf "${RED}[ERR]${RESET}   %s\n" "$*" >&2; exit 1; }
 header() { printf "\n${BOLD}${CYAN}=== %s ===${RESET}\n" "$*"; }
 
-# --- Defaults ---
+# --- Defaults & Language ---
 IFACE="awg0"
 DOMAINS=""
 CONF_FILE=""
@@ -40,32 +40,77 @@ UNINSTALL=0
 AWG_DIR="/usr/local/etc/amnezia3"
 LOG_FILE="/var/log/awg3-setup.log"
 
-usage() {
-    cat <<EOF
-Использование: $0 -c <conf_file> [опции]
+APP_LANG="en"
+if [ -n "$LANG" ] && echo "$LANG" | grep -qi "^ru"; then
+    APP_LANG="ru"
+fi
+CLI_LANG=""
+RUN_TUI=0
+BACKTITLE="FreeBSD AmneziaWG 3.1 Installer"
 
-  -c FILE   Готовый .conf файл AmneziaWG 3.1 (обязательно)
+t() {
+    if [ "${APP_LANG}" = "ru" ]; then
+        printf "%s" "$2"
+    else
+        printf "%s" "$1"
+    fi
+}
+
+usage() {
+    if [ "${APP_LANG}" = "ru" ]; then
+        cat <<EOF
+Использование: $0 [опции]
+
+Режимы запуска:
+  sudo $0                  Интерактивный TUI-мастер FreeBSD (рекомендуется)
+  sudo $0 -c <файл.conf>   Консольная установка с указанным конфигом
+
+Опции:
+  -c FILE   Готовый .conf файл AmneziaWG 3.1
   -d DOMAIN Домены или IP/CIDR через запятую для раздельного туннелирования
             (по умолчанию: не задано — весь трафик идёт через VPN)
-  -i IFACE  Имя интерфейса (default: awg0)
+  -i IFACE  Имя интерфейса (по умолчанию: awg0)
+  -l LANG   Язык интерфейса: en или ru
   -u        Удалить всё (AmneziaWG 3.1)
   -h        Эта справка
 
 Примеры:
-  # Полный туннель AWG 3.1 (весь интернет через VPN):
+  sudo $0
   sudo $0 -c /home/user/awg3.conf
-
-  # Раздельное туннелирование AWG 3.1 (трафик только для выбранных доменов и подсетей):
   sudo $0 -c /home/user/awg3.conf -d "rutracker.org,nnmclub.to,198.51.100.0/24"
 EOF
+    else
+        cat <<EOF
+Usage: $0 [options]
+
+Execution modes:
+  sudo $0                  Interactive FreeBSD TUI Wizard (recommended)
+  sudo $0 -c <file.conf>   Direct CLI setup with specified configuration
+
+Options:
+  -c FILE   AmneziaWG 3.1 .conf file
+  -d DOMAIN Comma-separated domains or IP/CIDR subnets for split tunneling
+            (default: all internet traffic routed through VPN)
+  -i IFACE  Network interface name (default: awg0)
+  -l LANG   Interface language: en or ru
+  -u        Completely uninstall AmneziaWG 3.1
+  -h        Display this help message
+
+Examples:
+  sudo $0
+  sudo $0 -c /home/user/awg3.conf
+  sudo $0 -c /home/user/awg3.conf -d "rutracker.org,nnmclub.to,198.51.100.0/24"
+EOF
+    fi
     exit 0
 }
 
-while getopts "c:d:i:uh" opt; do
+while getopts "c:d:i:l:uh" opt; do
     case "$opt" in
         c) CONF_FILE="$OPTARG" ;;
         d) DOMAINS="$OPTARG"   ;;
         i) IFACE="$OPTARG"     ;;
+        l) APP_LANG="$OPTARG"; CLI_LANG="$OPTARG" ;;
         u) UNINSTALL=1         ;;
         h) usage               ;;
         *) usage               ;;
@@ -78,12 +123,240 @@ RC_SCRIPT="/usr/local/etc/rc.d/amneziawg3"
 
 # =============================================================================
 check_root() {
-    [ "$(id -u)" -eq 0 ] || die "Запустите от root: sudo $0 $*"
+    [ "$(id -u)" -eq 0 ] || die "$(t "Run as root: sudo $0 $*" "Запустите от root: sudo $0 $*")"
+}
+
+# =============================================================================
+# TUI Wizard (FreeBSD Native bsddialog / dialog)
+# =============================================================================
+init_dialog() {
+    if command -v bsddialog >/dev/null 2>&1; then
+        DIALOG="bsddialog"
+    elif command -v dialog >/dev/null 2>&1; then
+        DIALOG="dialog"
+    else
+        DIALOG=""
+    fi
+}
+
+run_wizard() {
+    init_dialog
+    if [ -z "${DIALOG}" ]; then
+        warn "bsddialog / dialog not found in system. Please run in CLI mode with -c <conf_file>."
+        exit 1
+    fi
+
+    TMP_DIALOG=$(mktemp -t awg_dialog.XXXXXX 2>/dev/null || mktemp /tmp/awg_dialog.XXXXXX)
+    trap 'rm -f "${TMP_DIALOG}"' EXIT INT TERM
+
+    # --- Step 1: Language Selection ---
+    if [ -z "${CLI_LANG}" ]; then
+        "${DIALOG}" --backtitle "${BACKTITLE}" \
+            --title " Language / Язык " \
+            --menu "Select interface language / Выберите язык интерфейса:" \
+            12 60 2 \
+            "1" "English (Default)" \
+            "2" "Русский" 2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+        LANG_RES=$(cat "${TMP_DIALOG}")
+        if [ "${LANG_RES}" = "2" ]; then
+            APP_LANG="ru"
+        else
+            APP_LANG="en"
+        fi
+    fi
+
+    # --- Step 2: Configuration File Discovery ---
+    SEARCH_DIRS="."
+    if [ -n "${SUDO_USER}" ] && [ "${SUDO_USER}" != "root" ]; then
+        U_HOME=$(getent passwd "${SUDO_USER}" 2>/dev/null | cut -d: -f6)
+        [ -n "${U_HOME}" ] && [ -d "${U_HOME}" ] && SEARCH_DIRS="${SEARCH_DIRS} ${U_HOME}"
+    fi
+    [ -d "/home" ] && SEARCH_DIRS="${SEARCH_DIRS} /home"
+
+    FOUND_CONFS=$(find ${SEARCH_DIRS} -maxdepth 3 -type f -name "*.conf" 2>/dev/null | \
+        grep -vE '/(etc|usr|var|amnezia|amnezia3)/' | sort -u | head -10)
+
+    CHOSEN_CONF=""
+    while [ -z "${CHOSEN_CONF}" ]; do
+        if [ -n "${FOUND_CONFS}" ]; then
+            set -- --backtitle "${BACKTITLE}" \
+                   --title " $(t "Configuration File (.conf)" "Файл конфигурации (.conf)") " \
+                   --menu "$(t "Found configuration files in system:\nSelect a file or specify custom path:" "Найдены файлы конфигурации в системе:\nВыберите файл или укажите путь вручную:")" \
+                   16 75 6
+            INDEX=1
+            for f in ${FOUND_CONFS}; do
+                set -- "$@" "${INDEX}" "${f}"
+                INDEX=$((INDEX + 1))
+            done
+            set -- "$@" "C" "$(t "Enter path manually..." "Ввести путь вручную...")"
+
+            "${DIALOG}" "$@" 2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+            SEL=$(cat "${TMP_DIALOG}")
+            if [ "${SEL}" != "C" ]; then
+                CUR_IDX=1
+                for f in ${FOUND_CONFS}; do
+                    if [ "${CUR_IDX}" -eq "${SEL}" ] 2>/dev/null; then
+                        CHOSEN_CONF="${f}"
+                        break
+                    fi
+                    CUR_IDX=$((CUR_IDX + 1))
+                done
+            fi
+        fi
+
+        if [ -z "${CHOSEN_CONF}" ]; then
+            DEF_INPUT="/home/${SUDO_USER:-alsina}/freebsdtestawg31.conf"
+            [ -f "${DEF_INPUT}" ] || DEF_INPUT=""
+
+            "${DIALOG}" --backtitle "${BACKTITLE}" \
+                --title " $(t "Configuration File (.conf)" "Файл конфигурации (.conf)") " \
+                --inputbox "$(t "Enter full path to AmneziaWG .conf file:" "Введите полный путь к .conf файлу AmneziaWG:")" \
+                11 70 "${DEF_INPUT}" 2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+            ENTERED_PATH=$(cat "${TMP_DIALOG}" | tr -d '\r' | tr -d '\n')
+            if [ -f "${ENTERED_PATH}" ]; then
+                CHOSEN_CONF="${ENTERED_PATH}"
+            else
+                "${DIALOG}" --backtitle "${BACKTITLE}" \
+                    --title " $(t "Error" "Ошибка") " \
+                    --msgbox "$(t "File not found: " "Файл не найден: ")${ENTERED_PATH}\n$(t "Please check path and try again." "Пожалуйста, проверьте путь и повторите ввод.")" \
+                    9 65
+            fi
+        fi
+    done
+
+    CONF_FILE="${CHOSEN_CONF}"
+
+    # --- Step 3: Tunnel Routing Mode ---
+    "${DIALOG}" --backtitle "${BACKTITLE}" \
+        --title " $(t "Routing Mode" "Режим маршрутизации") " \
+        --menu "$(t "Choose VPN traffic routing mode:" "Выберите режим маршрутизации трафика:")" \
+        13 70 2 \
+        "1" "$(t "Full Tunnel - Route ALL internet traffic via VPN" "Полный туннель - Весь интернет через VPN")" \
+        "2" "$(t "Split Tunneling - Route only selected domains / IPs" "Раздельный туннель - Только выбранные домены / IP")" \
+        2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+    MODE_CHOICE=$(cat "${TMP_DIALOG}")
+
+    # --- Step 4: Domain Manager (if Split Tunneling) ---
+    DOMAINS=""
+    if [ "${MODE_CHOICE}" = "2" ]; then
+        DOMAIN_LIST=""
+        while true; do
+            if [ -z "${DOMAIN_LIST}" ]; then
+                DOM_DISPLAY="$(t "(No domains added yet)" "(Список пуст)")"
+            else
+                DOM_DISPLAY=$(echo "${DOMAIN_LIST}" | tr ',' '\n' | sed 's/^/  • /')
+            fi
+
+            MENU_MSG="$(t "Current split tunneling targets:" "Текущие цели раздельного туннелирования:")\n\n${DOM_DISPLAY}\n"
+
+            "${DIALOG}" --backtitle "${BACKTITLE}" \
+                --title " $(t "Split Tunneling Manager" "Управление раздельным туннелированием") " \
+                --menu "${MENU_MSG}" \
+                18 72 4 \
+                "ADD"   "$(t "+ Add domain or IP/CIDR" "+ Добавить домен или IP/CIDR")" \
+                "DEL"   "$(t "- Remove last added item" "- Удалить последний добавленный элемент")" \
+                "CLEAR" "$(t "x Clear all items" "x Очистить весь список")" \
+                "DONE"  "$(t "-> Proceed with this list" "-> Завершить и продолжить установку")" \
+                2>"${TMP_DIALOG}" || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+            ACT=$(cat "${TMP_DIALOG}")
+            case "${ACT}" in
+                ADD)
+                    "${DIALOG}" --backtitle "${BACKTITLE}" \
+                        --title " $(t "Add Domain / Subnet" "Добавить домен / подсеть") " \
+                        --inputbox "$(t "Enter domain name or IP/CIDR:\n(e.g.: rutracker.org, nnmclub.to, 198.51.100.0/24)" "Введите домен или IP/CIDR:\n(например: rutracker.org, nnmclub.to, 198.51.100.0/24)")" \
+                        12 68 2>"${TMP_DIALOG}" || continue
+
+                    RAW_ENTRY=$(cat "${TMP_DIALOG}" | tr -d ' ' | tr -d '\t' | tr -d '\r' | tr -d '\n')
+                    if [ -n "${RAW_ENTRY}" ]; then
+                        if [ -z "${DOMAIN_LIST}" ]; then
+                            DOMAIN_LIST="${RAW_ENTRY}"
+                        else
+                            DOMAIN_LIST="${DOMAIN_LIST},${RAW_ENTRY}"
+                        fi
+                    fi
+                    ;;
+                DEL)
+                    if [ -n "${DOMAIN_LIST}" ]; then
+                        DOMAIN_LIST=$(echo "${DOMAIN_LIST}" | sed 's/,[^,]*$//; s/^[^,]*$//')
+                    fi
+                    ;;
+                CLEAR)
+                    DOMAIN_LIST=""
+                    ;;
+                DONE)
+                    if [ -z "${DOMAIN_LIST}" ]; then
+                        "${DIALOG}" --backtitle "${BACKTITLE}" \
+                            --title " $(t "Empty Target List" "Список целей пуст") " \
+                            --yesno "$(t "Domain list is empty. Switch to Full Tunnel mode?" "Список доменов пуст. Переключиться в режим полного туннеля?")" \
+                            8 65
+                        if [ $? -eq 0 ]; then
+                            DOMAINS=""
+                            break
+                        else
+                            continue
+                        fi
+                    else
+                        DOMAINS="${DOMAIN_LIST}"
+                        break
+                    fi
+                    ;;
+            esac
+        done
+    fi
+
+    # --- Step 5: Summary and Confirmation ---
+    if [ -n "${DOMAINS}" ]; then
+        SUMMARY_MODE="$(t "Split Tunneling" "Раздельное туннелирование")\n    $(t "Targets:" "Цели:") ${DOMAINS}"
+    else
+        SUMMARY_MODE="$(t "Full Tunnel (All internet traffic routed via VPN)" "Полный туннель (Весь интернет через VPN)")"
+    fi
+
+    SUM_TEXT="$(t "Ready to install AmneziaWG 3.1 with settings:" "Готово к установке AmneziaWG 3.1 со следующими параметрами:")\n\n"
+    SUM_TEXT="${SUM_TEXT}  • $(t "Config file:" "Конфигурация:")   ${CONF_FILE}\n"
+    SUM_TEXT="${SUM_TEXT}  • $(t "Interface:" "Интерфейс:")     ${IFACE}\n"
+    SUM_TEXT="${SUM_TEXT}  • $(t "Routing Mode:" "Маршрутизация:") ${SUMMARY_MODE}\n\n"
+    SUM_TEXT="${SUM_TEXT}$(t "Proceed with automated build and installation?" "Запустить автоматическую сборку и настройку?")"
+
+    "${DIALOG}" --backtitle "${BACKTITLE}" \
+        --title " $(t "Installation Summary" "Сводка параметров установки") " \
+        --yesno "${SUM_TEXT}" 16 75 || { rm -f "${TMP_DIALOG}"; echo "Cancelled by user / Отменено пользователем."; exit 0; }
+
+    rm -f "${TMP_DIALOG}"
+}
+
+show_final_dialog() {
+    [ -z "${DIALOG}" ] && return 0
+    FINAL_MSG="╔══════════════════════════════════════════════════════════╗\n"
+    FINAL_MSG="${FINAL_MSG}║   $(t "AmneziaWG 3.1 successfully configured!" "AmneziaWG 3.1 успешно настроен!")      ║\n"
+    FINAL_MSG="${FINAL_MSG}╚══════════════════════════════════════════════════════════╝\n\n"
+    FINAL_MSG="${FINAL_MSG}$(t "Protocol:" "Протокол:")   AmneziaWG 3.1 (ChaCha20 Header Protection)\n"
+    FINAL_MSG="${FINAL_MSG}$(t "Interface:" "Туннель:")    ${IFACE}\n"
+    if [ -n "${VERIF_EXT_IP}" ]; then
+        FINAL_MSG="${FINAL_MSG}$(t "External IP:" "Внешний IP:") ${VERIF_EXT_IP}\n"
+    fi
+    if [ -n "${VERIF_AGO}" ]; then
+        FINAL_MSG="${FINAL_MSG}$(t "Handshake:" "Хэндшейк:")   $(t "Active" "Активен") (${VERIF_AGO} $(t "sec ago" "сек назад"))\n\n"
+    else
+        FINAL_MSG="${FINAL_MSG}\n"
+    fi
+    FINAL_MSG="${FINAL_MSG}$(t "Service Management:" "Управление сервисом:")\n"
+    FINAL_MSG="${FINAL_MSG}  service amneziawg3 status\n"
+    FINAL_MSG="${FINAL_MSG}  service amneziawg3 stop\n"
+    FINAL_MSG="${FINAL_MSG}  service amneziawg3 start\n"
+
+    "${DIALOG}" --backtitle "${BACKTITLE}" \
+        --title " $(t "Setup Complete" "Установка завершена") " \
+        --msgbox "${FINAL_MSG}" 18 68 </dev/tty >/dev/tty 2>&1 || true
 }
 
 # =============================================================================
 do_uninstall() {
-    header "Удаление AmneziaWG 3.1"
+    header "$(t "Uninstalling AmneziaWG 3.1" "Удаление AmneziaWG 3.1")"
 
     if [ -x "${RC_SCRIPT}" ]; then
         service amneziawg3 stop 2>/dev/null || true
@@ -110,35 +383,35 @@ do_uninstall() {
     sed -i '' '/if_wg_load/d'  /boot/loader.conf 2>/dev/null || true
     sed -i '' '/if_amn_load/d' /boot/loader.conf 2>/dev/null || true
 
-    ok "Удаление AmneziaWG 3.1 завершено"
+    ok "$(t "AmneziaWG 3.1 uninstalled successfully" "Удаление AmneziaWG 3.1 завершено")"
     exit 0
 }
 
 # =============================================================================
 check_os() {
-    header "Проверка окружения"
-    [ "$(uname -s)" = "FreeBSD" ] || die "Только FreeBSD"
+    header "$(t "Environment Check" "Проверка окружения")"
+    [ "$(uname -s)" = "FreeBSD" ] || die "$(t "FreeBSD only" "Только FreeBSD")"
     VER=$(uname -r | cut -d. -f1)
-    [ "$VER" -ge 13 ] || die "Требуется FreeBSD 13+"
-    ok "ОС: FreeBSD $(uname -r)"
+    [ "$VER" -ge 13 ] || die "$(t "FreeBSD 13+ required" "Требуется FreeBSD 13+")"
+    ok "$(t "OS: FreeBSD $(uname -r)" "ОС: FreeBSD $(uname -r)")"
 
     if [ ! -d "/usr/src/sys" ]; then
-        warn "Исходные тексты ядра /usr/src/sys не обнаружены."
-        info "Устанавливаем исходники системы для сборки модуля ядра..."
+        warn "$(t "Kernel sources /usr/src/sys not found." "Исходные тексты ядра /usr/src/sys не обнаружены.")"
+        info "$(t "Installing system sources for kernel module compilation..." "Устанавливаем исходники системы для сборки модуля ядра...")"
         pkg install -y git || true
         git clone --depth 1 -b "releng/$(uname -r | cut -d- -f1,2)" https://git.freebsd.org/src.git /usr/src || \
-            die "Не удалось получить исходники ядра в /usr/src"
-        ok "Исходники ядра /usr/src готовы"
+            die "$(t "Failed to fetch kernel sources into /usr/src" "Не удалось получить исходники ядра в /usr/src")"
+        ok "$(t "Kernel sources /usr/src ready" "Исходники ядра /usr/src готовы")"
     else
-        ok "Исходники ядра /usr/src/sys найдены"
+        ok "$(t "Kernel sources /usr/src/sys found" "Исходники ядра /usr/src/sys найдены")"
     fi
 }
 
 # =============================================================================
 check_conf() {
-    header "Анализ конфигурационного файла AWG 3.1"
-    [ -n "${CONF_FILE}" ] || die "Укажите конфиг: $0 -c /path/to/awg3.conf"
-    [ -f "${CONF_FILE}" ] || die "Файл не найден: ${CONF_FILE}"
+    header "$(t "Analyzing AWG 3.1 Configuration File" "Анализ конфигурационного файла AWG 3.1")"
+    [ -n "${CONF_FILE}" ] || die "$(t "Specify config: $0 -c /path/to/awg3.conf" "Укажите конфиг: $0 -c /path/to/awg3.conf")"
+    [ -f "${CONF_FILE}" ] || die "$(t "File not found: ${CONF_FILE}" "Файл не найден: ${CONF_FILE}")"
 
     HAS_AWG3=0
     HAS_AWG2=0
@@ -146,7 +419,7 @@ check_conf() {
     # Проверка параметров AWG 3.1
     if grep -qiE "^ *(HeaderProtectionKey|ContentPaddingAddition|RandomTrailers|DisableCookies|RekeyAfterTime)" "${CONF_FILE}"; then
         HAS_AWG3=1
-        ok "Обнаружены расширенные параметры протокола AWG 3.1:"
+        ok "$(t "Detected extended AWG 3.1 protocol parameters:" "Обнаружены расширенные параметры протокола AWG 3.1:")"
         grep -iE "^ *(HeaderProtectionKey|ContentPaddingAddition|RandomTrailers|DisableCookies|RekeyAfterTime)" "${CONF_FILE}" | while read -r line; do
             key=$(echo "$line" | cut -d= -f1 | tr -d ' ')
             printf "     * %s\n" "$key"
@@ -156,27 +429,27 @@ check_conf() {
     # Проверка базовых параметров обфускации
     if grep -qiE "^ *(Jc|Jmin|Jmax|H1|H2|H3|H4|S1|S2|S3|S4)" "${CONF_FILE}"; then
         HAS_AWG2=1
-        ok "Обнаружены параметры обфускации (Jc/Jmin/H1-H4/S1-S4)"
+        ok "$(t "Detected obfuscation parameters (Jc/Jmin/H1-H4/S1-S4)" "Обнаружены параметры обфускации (Jc/Jmin/H1-H4/S1-S4)")"
     fi
 
     if [ "$HAS_AWG3" -eq 1 ]; then
-        printf "${GREEN}${BOLD}>> Протокол: AmneziaWG 3.1 (активная защита заголовков ChaCha20 + Transport Padding)${RESET}\n"
+        printf "${GREEN}${BOLD}>> %s${RESET}\n" "$(t "Protocol: AmneziaWG 3.1 (active ChaCha20 header protection + Transport Padding)" "Протокол: AmneziaWG 3.1 (активная защита заголовков ChaCha20 + Transport Padding)")"
     elif [ "$HAS_AWG2" -eq 1 ]; then
-        info "Конфиг содержит параметры AWG 2.x"
+        info "$(t "Config contains AWG 2.x parameters" "Конфиг содержит параметры AWG 2.x")"
     else
-        warn "Конфиг выглядит как стандартный WireGuard"
+        warn "$(t "Config looks like standard WireGuard" "Конфиг выглядит как стандартный WireGuard")"
     fi
 
-    ok "Конфиг: ${CONF_FILE}"
+    ok "$(t "Config:" "Конфиг:") ${CONF_FILE}"
 }
 
 # =============================================================================
 cleanup_old_awg() {
-    header "Очистка компонентов предыдущей версии AmneziaWG"
+    header "$(t "Cleaning Previous AmneziaWG Components" "Очистка компонентов предыдущей версии AmneziaWG")"
 
     # Остановка сервисов amneziawg (v2) и amneziawg3, если они запущены
     if service amneziawg status >/dev/null 2>&1 || service amneziawg3 status >/dev/null 2>&1 || ifconfig "${IFACE}" >/dev/null 2>&1; then
-        info "Останавливаем запущенный туннель/сервис предыдущей версии..."
+        info "$(t "Stopping running tunnels/services of previous versions..." "Останавливаем запущенный туннель/сервис предыдущей версии...")"
         service amneziawg stop 2>/dev/null || true
         service amneziawg3 stop 2>/dev/null || true
         awg-quick down "${CONF_PATH}" 2>/dev/null || true
@@ -195,52 +468,52 @@ cleanup_old_awg() {
 
     # Удаление несовместимых пакетов AWG 1/2 из pkg (они не знают HeaderProtectionKey)
     if pkg info amnezia-tools >/dev/null 2>&1 || pkg info amnezia-kmod >/dev/null 2>&1; then
-        info "Удаляем устаревшие пакеты amnezia-tools/amnezia-kmod из pkg..."
+        info "$(t "Removing deprecated amnezia-tools/amnezia-kmod packages from pkg..." "Удаляем устаревшие пакеты amnezia-tools/amnezia-kmod из pkg...")"
         pkg delete -y amnezia-tools amnezia-kmod 2>/dev/null || true
         pkg autoremove -y 2>/dev/null || true
     fi
 
-    ok "Система очищена от конфликтующих компонентов AWG 2.x"
+    ok "$(t "System cleaned of conflicting AWG 2.x components" "Система очищена от конфликтующих компонентов AWG 2.x")"
 }
 
 # =============================================================================
 build_and_install_awg3() {
-    header "Сборка и установка компонентов AmneziaWG 3.1"
+    header "$(t "Building and Installing AmneziaWG 3.1" "Сборка и установка компонентов AmneziaWG 3.1")"
 
     # Установка инструментов сборки
-    info "Установка сборочных утилит (git, gmake)..."
-    pkg -N 2>/dev/null || pkg bootstrap -y || die "Не удалось инициализировать pkg"
-    pkg install -y git gmake bash || die "Не удалось установить git и gmake"
+    info "$(t "Installing build tools (git, gmake, bash)..." "Установка сборочных утилит (git, gmake, bash)...")"
+    pkg -N 2>/dev/null || pkg bootstrap -y || die "$(t "Failed to bootstrap pkg" "Не удалось инициализировать pkg")"
+    pkg install -y git gmake bash || die "$(t "Failed to install git and gmake" "Не удалось установить git и gmake")"
 
     # 1. Сборка драйвера ядра wireguard-amnezia-kmod (v3.1.0)
-    info "Сборка модуля ядра wireguard-amnezia-kmod v3.1.0..."
+    info "$(t "Building wireguard-amnezia-kmod v3.1.0 kernel module..." "Сборка модуля ядра wireguard-amnezia-kmod v3.1.0...")"
     KMOD_BUILD_DIR="/tmp/awg3-kmod-build"
     rm -rf "${KMOD_BUILD_DIR}"
     git clone --depth 1 -b v3.1.0 https://github.com/vgrebenschikov/wireguard-amnezia-kmod.git "${KMOD_BUILD_DIR}" || \
-        die "Не удалось клонировать wireguard-amnezia-kmod"
+        die "$(t "Failed to clone wireguard-amnezia-kmod" "Не удалось клонировать wireguard-amnezia-kmod")"
 
     make -C "${KMOD_BUILD_DIR}" clean
-    make -C "${KMOD_BUILD_DIR}" || die "Ошибка компиляции модуля ядра wireguard-amnezia-kmod"
-    make -C "${KMOD_BUILD_DIR}" install || die "Ошибка установки модуля ядра wireguard-amnezia-kmod"
+    make -C "${KMOD_BUILD_DIR}" || die "$(t "Failed to compile wireguard-amnezia-kmod" "Ошибка компиляции модуля ядра wireguard-amnezia-kmod")"
+    make -C "${KMOD_BUILD_DIR}" install || die "$(t "Failed to install wireguard-amnezia-kmod" "Ошибка установки модуля ядра wireguard-amnezia-kmod")"
     rm -rf "${KMOD_BUILD_DIR}"
-    ok "Драйвер ядра AmneziaWG 3.1 собран и установлен в /boot/modules/if_wg.ko"
+    ok "$(t "AmneziaWG 3.1 kernel driver built and installed to /boot/modules/if_wg.ko" "Драйвер ядра AmneziaWG 3.1 собран и установлен в /boot/modules/if_wg.ko")"
 
     # 2. Сборка утилит amneziawg-tools с поддержкой AWG 3.1 и FreeBSD IPC (PR #77)
-    info "Сборка утилит awg и awg-quick (AWG 3.1)..."
+    info "$(t "Building awg and awg-quick tools (AWG 3.1)..." "Сборка утилит awg и awg-quick (AWG 3.1)...")"
     TOOLS_BUILD_DIR="/tmp/awg3-tools-build"
     rm -rf "${TOOLS_BUILD_DIR}"
     git clone https://github.com/amnezia-vpn/amneziawg-tools.git "${TOOLS_BUILD_DIR}" || \
-        die "Не удалось клонировать amneziawg-tools"
+        die "$(t "Failed to clone amneziawg-tools" "Не удалось клонировать amneziawg-tools")"
 
     # Подтягиваем патчи FreeBSD IPC для AWG 3.1 (PR #77 от vgrebenschikov)
-    git -C "${TOOLS_BUILD_DIR}" fetch origin pull/77/head:awg31 || die "Не удалось загрузить патч PR #77"
+    git -C "${TOOLS_BUILD_DIR}" fetch origin pull/77/head:awg31 || die "$(t "Failed to fetch PR #77" "Не удалось загрузить патч PR #77")"
     git -C "${TOOLS_BUILD_DIR}" checkout awg31
 
     # Патчим awg-quick для FreeBSD:
     # 1. Заставляем awg-quick вызывать скомпилированный awg 3.1, а не системный /usr/bin/wg
     # 2. Заставляем создавать нативный ядерный интерфейс if_wg.ko, а не amneziawg-go
     # 3. Отключаем background route monitor, блокирующий завершение скриптов и удерживающий дескрипторы
-    info "Патчим awg-quick для работы с нативным модулем ядра if_wg.ko и утилитой awg 3.1..."
+    info "$(t "Patching awg-quick for native if_wg.ko kernel driver and awg 3.1..." "Патчим awg-quick для работы с нативным модулем ядра if_wg.ko и утилитой awg 3.1...")"
     sed -i '' 's/cmd="amneziawg-go "\$INTERFACE"";/:;/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
     sed -i '' 's/\${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}/ifconfig wg create name/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
     sed -i '' 's/cmd wg setconf/cmd awg setconf/g' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
@@ -249,8 +522,8 @@ build_and_install_awg3() {
     sed -i '' 's/.*Backgrounding route monitor.*/return 0/' "${TOOLS_BUILD_DIR}/src/wg-quick/freebsd.bash"
 
     gmake -C "${TOOLS_BUILD_DIR}/src" clean
-    gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local || die "Ошибка компиляции amneziawg-tools"
-    gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local install || die "Ошибка установки amneziawg-tools"
+    gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local || die "$(t "Failed to compile amneziawg-tools" "Ошибка компиляции amneziawg-tools")"
+    gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local install || die "$(t "Failed to install amneziawg-tools" "Ошибка установки amneziawg-tools")"
     rm -rf "${TOOLS_BUILD_DIR}"
 
     # Гарантируем отсутствие случайного префикса aawg и отключение route monitor в awg-quick
@@ -262,15 +535,15 @@ build_and_install_awg3() {
 
     # Проверка, что awg теперь знает HeaderProtectionKey
     if strings /usr/local/bin/awg 2>/dev/null | grep -qi "header-protection-key"; then
-        ok "Утилита awg 3.1 успешно установлена (поддержка HeaderProtectionKey подтверждена)"
+        ok "$(t "awg 3.1 utility successfully installed (HeaderProtectionKey confirmed)" "Утилита awg 3.1 успешно установлена (поддержка HeaderProtectionKey подтверждена)")"
     else
-        warn "Утилита awg установлена, но сигнатура HeaderProtectionKey не найдена"
+        warn "$(t "awg installed, but HeaderProtectionKey signature not found" "Утилита awg установлена, но сигнатура HeaderProtectionKey не найдена")"
     fi
 }
 
 # =============================================================================
 load_kmod() {
-    header "Загрузка модуля ядра AWG 3.1"
+    header "$(t "Loading AWG 3.1 Kernel Module" "Загрузка модуля ядра AWG 3.1")"
 
     # Выгружаем любые остаточные модули
     kldunload if_amn 2>/dev/null || true
@@ -282,29 +555,29 @@ load_kmod() {
     if [ -f "/boot/kernel/if_wg.ko" ]; then
         if [ ! -f "/boot/kernel/if_wg.ko.stock" ]; then
             cp -p /boot/kernel/if_wg.ko /boot/kernel/if_wg.ko.stock
-            info "Создана резервная копия стандартного модуля WireGuard: /boot/kernel/if_wg.ko.stock"
+            info "$(t "Created backup of stock WireGuard module: /boot/kernel/if_wg.ko.stock" "Создана резервная копия стандартного модуля WireGuard: /boot/kernel/if_wg.ko.stock")"
         fi
         cp -fp /boot/modules/if_wg.ko /boot/kernel/if_wg.ko
         kldxref /boot/kernel 2>/dev/null || true
-        ok "Синхронизирован модуль ядра /boot/kernel/if_wg.ko для автозагрузки"
+        ok "$(t "Synchronized /boot/kernel/if_wg.ko for automated boot" "Синхронизирован модуль ядра /boot/kernel/if_wg.ko для автозагрузки")"
     fi
 
-    info "Загружаем модуль if_wg (v3.1.0)..."
-    kldload /boot/modules/if_wg.ko 2>/dev/null || kldload if_wg || die "Не удалось загрузить модуль /boot/modules/if_wg.ko"
+    info "$(t "Loading if_wg module (v3.1.0)..." "Загружаем модуль if_wg (v3.1.0)...")"
+    kldload /boot/modules/if_wg.ko 2>/dev/null || kldload if_wg || die "$(t "Failed to load if_wg.ko kernel module" "Не удалось загрузить модуль /boot/modules/if_wg.ko")"
     LOADED_MOD=$(kldstat | grep -E 'if_wg|if_amn' | awk '{print $5}' | head -1)
-    ok "Модуль ядра загружен: ${LOADED_MOD}"
+    ok "$(t "Kernel module loaded:" "Модуль ядра загружен:") ${LOADED_MOD}"
 
     # Настройка автозагрузки в /boot/loader.conf
     sed -i '' '/if_amn_load/d' /boot/loader.conf 2>/dev/null || true
     if ! grep -q "if_wg_load" /boot/loader.conf 2>/dev/null; then
         echo 'if_wg_load="YES"' >> /boot/loader.conf
-        ok "Автозагрузка if_wg прописана в /boot/loader.conf"
+        ok "$(t "Auto-load if_wg added to /boot/loader.conf" "Автозагрузка if_wg прописана в /boot/loader.conf")"
     fi
 }
 
 # =============================================================================
 prepare_config() {
-    header "Конфигурация AWG 3.1"
+    header "$(t "AWG 3.1 Configuration" "Конфигурация AWG 3.1")"
 
     mkdir -p "${AWG_DIR}"
     chmod 700 "${AWG_DIR}"
@@ -317,7 +590,7 @@ prepare_config() {
         sed -i '' "/^\[[Ii][Nn][Tt][Ee][Rr][Ff][Aa][Cc][Ee]\]/a\\
 MTU = 1280
 " "${CONF_PATH}"
-        info "Автоматически установлен безопасный MTU = 1280 для протокола AWG 3.1"
+        info "$(t "Automatically set safe MTU = 1280 for AWG 3.1 protocol" "Автоматически установлен безопасный MTU = 1280 для протокола AWG 3.1")"
     fi
 
     # Настройка раздельного туннелирования при указании доменов/сетей (-d)
@@ -333,12 +606,12 @@ PostUp = ${ROUTE_SCRIPT} up %i\\
 PostDown = ${ROUTE_SCRIPT} down %i
 " "${CONF_PATH}"
         fi
-        ok "Режим: Раздельное туннелирование AWG 3.1 (Table = off + селективная маршрутизация)"
+        ok "$(t "Mode: Split Tunneling AWG 3.1 (Table = off + selective routing)" "Режим: Раздельное туннелирование AWG 3.1 (Table = off + селективная маршрутизация)")"
     else
-        ok "Режим: Полный туннель AWG 3.1 (весь трафик через VPN)"
+        ok "$(t "Mode: Full Tunnel AWG 3.1 (all traffic via VPN)" "Режим: Полный туннель AWG 3.1 (весь трафик через VPN)")"
     fi
 
-    ok "Конфиг сохранён: ${CONF_PATH}"
+    ok "$(t "Config saved:" "Конфиг сохранён:") ${CONF_PATH}"
 }
 
 # =============================================================================
@@ -500,31 +773,31 @@ RCEOF
 
     chmod +x "${RC_SCRIPT}"
     sysrc amneziawg3_enable="YES"
-    ok "Автозапуск сервиса amneziawg3 настроен в /etc/rc.conf"
+    ok "$(t "amneziawg3 service configured in /etc/rc.conf" "Автозапуск сервиса amneziawg3 настроен в /etc/rc.conf")"
 }
 
 # =============================================================================
 start_tunnel() {
-    header "Запуск туннеля AWG 3.1"
+    header "$(t "Starting AWG 3.1 Tunnel" "Запуск туннеля AWG 3.1")"
 
     # Если интерфейс уже существует — опускаем
     if ifconfig "${IFACE}" > /dev/null 2>&1; then
-        info "Интерфейс ${IFACE} уже активен — перезапуск..."
+        info "$(t "Interface ${IFACE} already active — restarting..." "Интерфейс ${IFACE} уже активен — перезапуск...")"
         awg-quick down "${CONF_PATH}" 2>/dev/null || ifconfig "${IFACE}" destroy 2>/dev/null || true
         sleep 1
     fi
 
-    info "Поднимаем туннель AWG 3.1 через awg-quick..."
-    awg-quick up "${CONF_PATH}" || die "Не удалось запустить AmneziaWG 3.1"
+    info "$(t "Bringing up AWG 3.1 tunnel via awg-quick..." "Поднимаем туннель AWG 3.1 через awg-quick...")"
+    awg-quick up "${CONF_PATH}" || die "$(t "Failed to start AmneziaWG 3.1" "Не удалось запустить AmneziaWG 3.1")"
 
-    ifconfig "${IFACE}" > /dev/null 2>&1 || die "Интерфейс ${IFACE} не появился"
-    ok "Туннель ${IFACE} (AmneziaWG 3.1) активен"
+    ifconfig "${IFACE}" > /dev/null 2>&1 || die "$(t "Interface ${IFACE} did not appear" "Интерфейс ${IFACE} не появился")"
+    ok "$(t "Tunnel ${IFACE} (AmneziaWG 3.1) active" "Туннель ${IFACE} (AmneziaWG 3.1) активен")"
     awg show "${IFACE}"
 }
 
 # =============================================================================
 verify() {
-    header "Проверка работы"
+    header "$(t "Verification" "Проверка работы")"
     if [ -n "${DOMAINS}" ]; then
         for domain in $(echo "$DOMAINS" | tr ',' ' '); do
             TARGET=$(host -t A "$domain" 2>/dev/null | awk '/has address/{print $4; exit}')
@@ -533,21 +806,22 @@ verify() {
                 if [ "$ROUTE_IFACE" = "${IFACE}" ]; then
                     ok "${domain} (${TARGET}) -> ${IFACE} ✓"
                 else
-                    warn "${domain} (${TARGET}) идёт через ${ROUTE_IFACE}, не через ${IFACE}"
+                    warn "${domain} (${TARGET}) $(t "goes via" "идёт через") ${ROUTE_IFACE}, $(t "not via" "не через") ${IFACE}"
                 fi
             fi
         done
-        info "Внешний IP (должен быть IP вашего провайдера):"
+        info "$(t "External IP (should be your regular ISP IP):" "Внешний IP (должен быть IP вашего провайдера):")"
     else
-        info "Внешний IP (должен быть IP VPN-сервера AWG 3.1):"
+        info "$(t "External IP (should be AmneziaWG 3.1 VPN server IP):" "Внешний IP (должен быть IP VPN-сервера AWG 3.1):")"
     fi
 
     # Запрашиваем внешний IP с таймаутом 5 сек (защита от зависания)
     EXT_IP=$(fetch -T 5 -qo - https://api.ipify.org 2>/dev/null || fetch -T 5 -qo - https://icanhazip.com 2>/dev/null || true)
+    VERIF_EXT_IP="${EXT_IP}"
     if [ -n "${EXT_IP}" ]; then
-        ok "Внешний IP: ${EXT_IP}"
+        ok "$(t "External IP:" "Внешний IP:") ${EXT_IP}"
     else
-        warn "Не удалось определить внешний IP (таймаут ответа или соединение не установилось)"
+        warn "$(t "Could not determine external IP (timeout or connection failed)" "Не удалось определить внешний IP (таймаут ответа или соединение не установилось)")"
     fi
 
     # Проверка handshake с сервером
@@ -556,7 +830,8 @@ verify() {
     if [ -n "${HANDSHAKE_TS}" ] && [ "${HANDSHAKE_TS}" -gt 0 ] 2>/dev/null; then
         NOW=$(date +%s)
         AGO=$((NOW - HANDSHAKE_TS))
-        ok "Handshake с сервером AmneziaWG 3.1 успешно выполнен (${AGO} сек назад)"
+        VERIF_AGO="${AGO}"
+        ok "$(t "Handshake with AmneziaWG 3.1 server successful" "Handshake с сервером AmneziaWG 3.1 успешно выполнен") (${AGO} $(t "sec ago" "сек назад"))"
     fi
 }
 
@@ -564,21 +839,21 @@ verify() {
 print_summary() {
     printf "\n${BOLD}${MAGENTA}"
     printf "╔══════════════════════════════════════════════════════════╗\n"
-    printf "║        AmneziaWG 3.1 (AWG3) успешно настроен!            ║\n"
+    printf "║   %s   ║\n" "$(t "     AmneziaWG 3.1 (AWG3) successfully set up!    " "      AmneziaWG 3.1 (AWG3) успешно настроен!      ")"
     printf "╚══════════════════════════════════════════════════════════╝\n"
     printf "${RESET}\n"
-    printf "${BOLD}Протокол:${RESET}    AmneziaWG 3.1 (Header Protection + Transport Padding)\n"
-    printf "${BOLD}Туннель:${RESET}     %s\n"  "${IFACE}"
-    [ -n "${DOMAINS}" ] && printf "${BOLD}Домены/IP:${RESET}   %s\n" "${DOMAINS}" || printf "${BOLD}Режим:${RESET}       Весь трафик через VPN\n"
-    printf "${BOLD}Конфиг:${RESET}      %s\n"  "${CONF_PATH}"
-    printf "${BOLD}Лог:${RESET}         %s\n\n" "${LOG_FILE}"
-    printf "${BOLD}Управление сервисом:${RESET}\n"
-    printf "  Статус:   ${CYAN}service amneziawg3 status${RESET}\n"
-    printf "  Стоп:     ${CYAN}service amneziawg3 stop${RESET}\n"
-    printf "  Старт:    ${CYAN}service amneziawg3 start${RESET}\n"
-    printf "  Маршруты: ${CYAN}netstat -rn | grep %s${RESET}\n" "${IFACE}"
-    printf "  Логи:     ${CYAN}grep awg3-split /var/log/messages${RESET}\n"
-    printf "  Удалить:  ${CYAN}sudo $0 -u${RESET}\n\n"
+    printf "${BOLD}%s:${RESET}    AmneziaWG 3.1 (Header Protection + Transport Padding)\n" "$(t "Protocol" "Протокол")"
+    printf "${BOLD}%s:${RESET}     %s\n"  "$(t "Interface" "Туннель")" "${IFACE}"
+    [ -n "${DOMAINS}" ] && printf "${BOLD}%s:${RESET}   %s\n" "$(t "Domains/IP" "Домены/IP")" "${DOMAINS}" || printf "${BOLD}%s:${RESET}       %s\n" "$(t "Mode" "Режим")" "$(t "All traffic via VPN" "Весь трафик через VPN")"
+    printf "${BOLD}%s:${RESET}      %s\n"  "$(t "Config" "Конфиг")" "${CONF_PATH}"
+    printf "${BOLD}%s:${RESET}         %s\n\n" "$(t "Log" "Лог")" "${LOG_FILE}"
+    printf "${BOLD}%s:${RESET}\n" "$(t "Service Management" "Управление сервисом")"
+    printf "  %s:   ${CYAN}service amneziawg3 status${RESET}\n" "$(t "Status" "Статус")"
+    printf "  %s:     ${CYAN}service amneziawg3 stop${RESET}\n" "$(t "Stop" "Стоп")"
+    printf "  %s:    ${CYAN}service amneziawg3 start${RESET}\n" "$(t "Start" "Старт")"
+    printf "  %s: ${CYAN}netstat -rn | grep %s${RESET}\n" "$(t "Routes" "Маршруты")" "${IFACE}"
+    printf "  %s:     ${CYAN}grep awg3-split /var/log/messages${RESET}\n" "$(t "Logs" "Логи")"
+    printf "  %s:   ${CYAN}sudo $0 -u${RESET}\n\n" "$(t "Uninstall" "Удалить")"
 }
 
 # =============================================================================
@@ -608,8 +883,17 @@ main() {
 }
 
 # =============================================================================
-# Запуск с логированием (POSIX /bin/sh совместимый захват кода возврата)
+# Точка входа: интерактивный мастер (если запущен без -c) и логирование
 # =============================================================================
+if [ "${UNINSTALL}" -eq 0 ] && [ -z "${CONF_FILE}" ] && [ -t 0 ]; then
+    RUN_TUI=1
+    run_wizard
+fi
+
+CONF_PATH="${AWG_DIR}/${IFACE}.conf"
+ROUTE_SCRIPT="${AWG_DIR}/split-tunnel.sh"
+RC_SCRIPT="/usr/local/etc/rc.d/amneziawg3"
+
 if [ -z "${_AWG3_LOGGED}" ]; then
     export _AWG3_LOGGED=1
     TMP_EXIT="/tmp/awg3-exit.$$"
@@ -621,6 +905,9 @@ if [ -z "${_AWG3_LOGGED}" ]; then
     if [ -f "${TMP_EXIT}" ]; then
         EXIT_STATUS=$(cat "${TMP_EXIT}")
         rm -f "${TMP_EXIT}"
+    fi
+    if [ "${RUN_TUI}" -eq 1 ] && [ "${EXIT_STATUS}" -eq 0 ]; then
+        show_final_dialog
     fi
     exit "${EXIT_STATUS}"
 else

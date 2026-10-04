@@ -167,12 +167,14 @@ check_conf() {
 cleanup_old_awg() {
     header "Очистка компонентов предыдущей версии AmneziaWG"
 
-    # Остановка старого сервиса amneziawg (v2), если он запущен
-    if service amneziawg status >/dev/null 2>&1 || ifconfig awg0 >/dev/null 2>&1; then
+    # Остановка сервисов amneziawg (v2) и amneziawg3, если они запущены
+    if service amneziawg status >/dev/null 2>&1 || service amneziawg3 status >/dev/null 2>&1 || ifconfig "${IFACE}" >/dev/null 2>&1; then
         info "Останавливаем запущенный туннель/сервис предыдущей версии..."
         service amneziawg stop 2>/dev/null || true
+        service amneziawg3 stop 2>/dev/null || true
+        awg-quick down "${CONF_PATH}" 2>/dev/null || true
         awg-quick down /usr/local/etc/amnezia/awg0.conf 2>/dev/null || true
-        ifconfig awg0 destroy 2>/dev/null || true
+        ifconfig "${IFACE}" destroy 2>/dev/null || true
     fi
 
     # Отключение автозапуска старого сервиса
@@ -241,12 +243,8 @@ build_and_install_awg3() {
     gmake -C "${TOOLS_BUILD_DIR}/src" PREFIX=/usr/local install || die "Ошибка установки amneziawg-tools"
     rm -rf "${TOOLS_BUILD_DIR}"
 
-    # Дополнительная страховка: патчим установленный /usr/local/bin/awg-quick
-    sed -i '' 's/cmd="amneziawg-go "\$INTERFACE"";/:;/' /usr/local/bin/awg-quick 2>/dev/null || true
-    sed -i '' 's/\${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}/ifconfig wg create name/g' /usr/local/bin/awg-quick 2>/dev/null || true
-    sed -i '' 's/cmd wg setconf/cmd awg setconf/g' /usr/local/bin/awg-quick 2>/dev/null || true
-    sed -i '' 's/cmd wg showconf/cmd awg showconf/g' /usr/local/bin/awg-quick 2>/dev/null || true
-    sed -i '' 's/wg show/awg show/g' /usr/local/bin/awg-quick 2>/dev/null || true
+    # Гарантируем отсутствие случайного префикса aawg в awg-quick
+    sed -i '' 's/aawg/awg/g' /usr/local/bin/awg-quick 2>/dev/null || true
 
     # Создаём симлинк /usr/local/bin/wg -> /usr/local/bin/awg
     ln -sf /usr/local/bin/awg /usr/local/bin/wg
@@ -518,7 +516,21 @@ verify() {
     else
         info "Внешний IP (должен быть IP VPN-сервера AWG 3.1):"
     fi
-    fetch -qo - https://api.ipify.org 2>/dev/null && echo "" || true
+
+    # Запрашиваем внешний IP с таймаутом 5 сек (защита от зависания)
+    EXT_IP=$(fetch -T 5 -qo - https://api.ipify.org 2>/dev/null || fetch -T 5 -qo - https://icanhazip.com 2>/dev/null || true)
+    if [ -n "${EXT_IP}" ]; then
+        ok "Внешний IP: ${EXT_IP}"
+    else
+        warn "Не удалось определить внешний IP (таймаут ответа или соединение не установилось)"
+    fi
+
+    # Проверка handshake с сервером
+    sleep 1
+    HANDSHAKE=$(awg show "${IFACE}" latest-handshakes 2>/dev/null | awk '{print $2}')
+    if [ -n "${HANDSHAKE}" ] && [ "${HANDSHAKE}" -gt 0 ] 2>/dev/null; then
+        ok "Handshake с сервером AmneziaWG 3.1 успешно выполнен (${HANDSHAKE} сек назад)"
+    fi
 }
 
 # =============================================================================

@@ -125,3 +125,9 @@ awg show awg0              # Подробная информация об инт
   * AWG 3.1: `grep awg3-split /var/log/messages`
 * **Таблица маршрутизации интерфейса**:
   `netstat -rn | grep awg0`
+
+---
+
+## Лицензия
+
+Проект распространяется под свободной лицензией [BSD 2-Clause License](LICENSE).

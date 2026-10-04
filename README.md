@@ -125,3 +125,9 @@ awg show awg0              # View interface and peer details
   * AWG 3.1: `grep awg3-split /var/log/messages`
 * **Check Active Interface Routes**:
   `netstat -rn | grep awg0`
+
+---
+
+## License
+
+This project is licensed under the [BSD 2-Clause License](LICENSE).

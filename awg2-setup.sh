@@ -1,10 +1,10 @@
 #!/bin/sh
 # =============================================================================
-#  awg-setup.sh — Установщик AmneziaWG + split tunneling для FreeBSD
+#  awg2-setup.sh — Установщик AmneziaWG 2.0 / 1.0 (AWG2) + split tunneling для FreeBSD
 #
 #  Использование:
-#    sudo ./awg-setup.sh -c /path/to/vpn.conf [-d "domain1,domain2"] [-i awg0]
-#    sudo ./awg-setup.sh -u   # удалить всё
+#    sudo ./awg2-setup.sh -c /path/to/vpn.conf [-d "domain1,domain2"] [-i awg0]
+#    sudo ./awg2-setup.sh -u   # удалить всё
 # =============================================================================
 
 set -e
@@ -25,7 +25,7 @@ DOMAINS=""
 CONF_FILE=""
 UNINSTALL=0
 AWG_DIR="/usr/local/etc/amnezia"
-LOG_FILE="/var/log/awg-setup.log"
+LOG_FILE="/var/log/awg2-setup.log"
 
 APP_LANG="en"
 if [ -n "$LANG" ] && echo "$LANG" | grep -qi "^ru"; then
@@ -33,7 +33,7 @@ if [ -n "$LANG" ] && echo "$LANG" | grep -qi "^ru"; then
 fi
 CLI_LANG=""
 RUN_TUI=0
-BACKTITLE="FreeBSD AmneziaWG Installer"
+BACKTITLE="FreeBSD AmneziaWG 2.0 / 1.0 (AWG2) Installer"
 
 t() {
     if [ "${APP_LANG}" = "ru" ]; then
@@ -331,7 +331,7 @@ show_final_dialog() {
 
     FINAL_MSG="   $(t "AmneziaWG successfully configured!" "AmneziaWG успешно настроен!")\n"
     FINAL_MSG="${FINAL_MSG}------------------------------------------------------------\n\n"
-    FINAL_MSG="${FINAL_MSG}$(t "Protocol:" "Протокол:")   AmneziaWG 2.x\n"
+    FINAL_MSG="${FINAL_MSG}$(t "Protocol:" "Протокол:")   AmneziaWG 2.0 / 1.0\n"
     FINAL_MSG="${FINAL_MSG}$(t "Interface:" "Туннель:")    ${IFACE}\n"
     if [ -n "${DOMAINS}" ]; then
         FINAL_MSG="${FINAL_MSG}$(t "Mode:" "Режим:")        $(t "Split Tunneling" "Раздельное туннелирование")\n"
@@ -397,13 +397,15 @@ check_os() {
 check_conf() {
     header "Конфигурационный файл"
     [ -n "${CONF_FILE}" ] || die "Укажите конфиг: $0 -c /path/to/vpn.conf"
-    [ -f "${CONF_FILE}" ] || die "Файл не найден: ${CONF_FILE}"
-    if grep -qiE "^ *(Jc|Jmin|Jmax|H1|H2|H3|H4|S1|S2|S3|S4|HeaderProtectionKey|ContentPaddingAddition)" "${CONF_FILE}"; then
-        ok "Обнаружены параметры AWG-обфускации"
-    else
-        warn "Параметры AWG-обфускации не найдены — возможно обычный WireGuard конфиг"
+    if grep -qiE "^ *(HeaderProtectionKey|ContentPaddingAddition)" "${CONF_FILE}"; then
+        warn "$(t "Detected AWG 3.1 parameters. Consider using ./awg3-setup.sh" "Обнаружены параметры AWG 3.1. Рекомендуется использовать ./awg3-setup.sh")"
     fi
-    ok "Конфиг: ${CONF_FILE}"
+    if grep -qiE "^ *(Jc|Jmin|Jmax|H1|H2|H3|H4|S1|S2|S3|S4)" "${CONF_FILE}"; then
+        ok "$(t "Detected AWG 2.0 / 1.0 obfuscation parameters" "Обнаружены параметры обфускации AmneziaWG 2.0 / 1.0")"
+    else
+        warn "$(t "No AWG obfuscation parameters found — standard WireGuard config" "Параметры AWG-обфускации не найдены — стандартный WireGuard конфиг")"
+    fi
+    ok "$(t "Config:" "Конфиг:") ${CONF_FILE}"
 }
 
 # =============================================================================
@@ -754,7 +756,7 @@ verify() {
 print_summary() {
     printf "\n${BOLD}${GREEN}"
     printf "╔══════════════════════════════════════════════════════════╗\n"
-    printf "║   %s   ║\n" "$(t "       AmneziaWG successfully configured!         " "           AmneziaWG успешно настроен!            ")"
+    printf "║   %s   ║\n" "$(t "     AmneziaWG 2.0/1.0 successfully configured!   " "         AmneziaWG 2.0/1.0 успешно настроен!      ")"
     printf "╚══════════════════════════════════════════════════════════╝\n"
     printf "${RESET}\n"
     printf "${BOLD}%s:${RESET}     %s\n" "$(t "Interface" "Туннель")" "${IFACE}"
@@ -773,7 +775,7 @@ print_summary() {
 main() {
     printf "${BOLD}${CYAN}"
     printf "╔══════════════════════════════════════════════════════════╗\n"
-    printf "║    AmneziaWG Setup + Split Tunneling (FreeBSD)           ║\n"
+    printf "║    AmneziaWG 2.0/1.0 (AWG2) Setup (FreeBSD)              ║\n"
     printf "╚══════════════════════════════════════════════════════════╝\n"
     printf "${RESET}\n"
 

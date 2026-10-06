@@ -128,6 +128,14 @@ awg show awg0              # Подробная информация об инт
 
 ---
 
+## Благодарности и используемые компоненты
+
+* **[Владимир Гребенщиков (vgrebenschikov)](https://github.com/vgrebenschikov)** — автор нативного порта драйвера ядра FreeBSD для AmneziaWG (`wireguard-amnezia-kmod`), реализации защиты заголовков ChaCha20 в AWG 3.1 и патчей FreeBSD IPC для `amneziawg-tools`.
+* **[Команда Amnezia VPN](https://github.com/amnezia-vpn)** — авторы протокола AmneziaWG, клиентских инструментов и механизмов обфускации от DPI.
+* **[Проект WireGuard](https://www.wireguard.com/)** — Джейсон А. Доненфельд (Jason A. Donenfeld) и разработчики базового протокола WireGuard и его реализации для ядра FreeBSD.
+
+---
+
 ## Лицензия
 
 Проект распространяется под свободной лицензией [BSD 2-Clause License](LICENSE).

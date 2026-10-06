@@ -128,6 +128,14 @@ awg show awg0              # View interface and peer details
 
 ---
 
+## Credits & Acknowledgments
+
+* **[Vladimir Grebenshchikov (vgrebenschikov)](https://github.com/vgrebenschikov)** — Author of the native FreeBSD kernel driver port for AmneziaWG (`wireguard-amnezia-kmod`), AWG 3.1 ChaCha20 header protection implementation, and FreeBSD IPC patches for `amneziawg-tools`.
+* **[Amnezia VPN Team](https://github.com/amnezia-vpn)** — Authors of the AmneziaWG protocol, userspace utilities, and DPI obfuscation mechanisms.
+* **[WireGuard Project](https://www.wireguard.com/)** — Jason A. Donenfeld and contributors for the foundational WireGuard protocol and FreeBSD kernel implementation.
+
+---
+
 ## License
 
 This project is licensed under the [BSD 2-Clause License](LICENSE).

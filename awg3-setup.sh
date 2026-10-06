@@ -456,6 +456,9 @@ check_conf() {
 
     if [ "$HAS_AWG3" -eq 1 ]; then
         printf "${GREEN}${BOLD}>> %s${RESET}\n" "$(t "Protocol: AmneziaWG 3.1 (active ChaCha20 header protection + Transport Padding)" "Протокол: AmneziaWG 3.1 (активная защита заголовков ChaCha20 + Transport Padding)")"
+        if grep -qE "^ *H[1-4] *= *[1-4](-[1-4])? *$" "${CONF_FILE}"; then
+            info "$(t "Amnezia Premium profile detected: standard headers H1-H4 will be auto-adapted for FreeBSD" "Обнаружен профиль Amnezia Premium: стандартные заголовки H1-H4 будут автоматически адаптированы для FreeBSD")"
+        fi
     elif [ "$HAS_AWG2" -eq 1 ]; then
         info "$(t "Config contains AWG 2.x parameters" "Конфиг содержит параметры AWG 2.x")"
     else
@@ -606,6 +609,14 @@ prepare_config() {
 
     cp "${CONF_FILE}" "${CONF_PATH}"
     chmod 600 "${CONF_PATH}"
+
+    # Автоматическая адаптация Amnezia Premium и стандартных типов заголовков H1..H4 (1..4) для FreeBSD
+    # Драйвер ядра FreeBSD (wireguard-amnezia-kmod) отклоняет H <= 4 с ошибкой EINVAL.
+    # При закомментированных H1..H4 ядро FreeBSD по умолчанию отправляет стандартные типы WireGuard 1..4.
+    if grep -qE "^ *H[1-4] *= *[1-4](-[1-4])? *$" "${CONF_PATH}"; then
+        sed -i '' -E 's/^ *(H[1-4] *= *[1-4](-[1-4])? *$)/# \1 # Auto-adapted for FreeBSD kernel compatibility/' "${CONF_PATH}"
+        info "$(t "Auto-adapted standard headers H1-H4 (1..4) for FreeBSD kernel" "Параметры H1-H4 (1..4) автоматически адаптированы для совместимости с ядром FreeBSD")"
+    fi
 
     # Безопасный MTU для AWG 3.1 (защита от фрагментации из-за паддинга и заголовков ChaCha20)
     if ! grep -qi "^MTU" "${CONF_PATH}"; then
